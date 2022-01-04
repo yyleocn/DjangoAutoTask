@@ -9,6 +9,14 @@ from django.utils.translation import gettext_lazy as _
 from config import agent
 from Core.Component import TaskConfig
 
+INVALID_CONFIG = -100
+
+CALLBACK_ERROR = -3
+FAIL = -1
+RETRY = 1
+RUNNING = 10
+SUCCESS = 100
+
 
 class TaskPackage(models.Model):
     sn = models.BigAutoField(primary_key=True, )
@@ -30,78 +38,130 @@ class TaskPackage(models.Model):
 class TaskRec(models.Model):
     taskSn = models.BigAutoField(primary_key=True)  # task sn
 
-    name = models.TextField(max_length=100, null=True, )  # 作业名称
-    group = models.TextField(max_length=100, null=True, )  # 分组
-    taskPackage = models.ForeignKey(to=TaskPackage, null=True, on_delete=models.SET_NULL)  # 作业包
-    priority = models.IntegerField(default=100)  # 优先级
-
-    type = models.CharField(max_length=10, default='TASK')  # 类型
-    args = models.BinaryField()
-    kwargs = models.BinaryField()
-    func = models.TextField(max_length=30, null=False, blank=False)
-    result = models.BinaryField(null=True, )  # return value
-    errorText = models.TextField(max_length=20, null=True, blank=False, default=None)  # 错误信息
-
     createTime = models.BigIntegerField()  # 创建时间
     createUser = models.CharField(max_length=20, null=False, blank=False)  # 创建人
 
-    lock = models.BigIntegerField(null=True, )  # 锁定时间
+    name = models.TextField(max_length=100, null=True, )  # 作业名称
+    group = models.TextField(max_length=100, null=True, )  # 分组
+    taskPackage = models.ForeignKey(to=TaskPackage, null=True, on_delete=models.SET_NULL)  # 作业包
+
+    type = models.CharField(max_length=10, default='TASK')  # 类型
+    priority = models.IntegerField(default=100)  # 优先级
+    args = models.BinaryField()  # args
+    kwargs = models.BinaryField()  # kwargs
+    func = models.TextField(max_length=30, null=False, blank=False)  # func location string
+    callback = models.TextField(max_length=30, null=False, blank=False)  # callback func location string
+    result = models.BinaryField(null=True, )  # return value
+    errorText = models.TextField(max_length=100, null=True, blank=False, default=None)  # 错误信息
+
+    status = models.IntegerField(default=0, )  # 状态
+
+    # -100 invalid config
+    #   -3 callback error
+    #   -1 fail
+    #    0 default
+    #    1 need to retry
+    #   10 running
+    #  100 finish
+
+    @property
+    def INVALID_CONFIG(self):
+        return -100
+
+    @property
+    def CALLBACK_ERROR(self):
+        return -3
+
+    @property
+    def FAIL(self):
+        return -1
+
+    @property
+    def RETRY(self):
+        return 1
+
+    @property
+    def RUNNING(self):
+        return 10
+
+    @property
+    def SUCCESS(self):
+        return 100
+
+    schemeStamp = models.BigIntegerField(null=True, )  # 计划时间
+    startStamp = models.BigIntegerField(null=True, )  # 开始时间
+    endStamp = models.BigIntegerField(null=True, )  # 结束时间
     timeout = models.IntegerField(default=30, )  # 超时
     delay = models.IntegerField(default=10, )  # 间隔
 
-    status = models.IntegerField(default=0, )  # 状态
-    # -2 config error
-    # -1 fail
-    #  0 default
-    #  1 success
-    retryLimit = models.IntegerField(default=0)  # 重试
-    retryCount = models.IntegerField(default=0)  # 重试次数
-    endTime = models.BigIntegerField(null=True)  # 状态时间
+    retry = models.IntegerField(default=0)  # 重试
+    execute = models.IntegerField(default=0)  # 重试次数
 
     def setStatus(self, status_):
         self.status = status_
         self.statusTime = time.time()
         self.save()
 
-    def startError(self, errorText_):
+    def invalidConfig(self, errorText_):
         self.errorText = str(errorText_)
-        self.setStatus(-2)
+        self.setStatus(INVALID_CONFIG)
 
-    def finishError(self):
+    def taskFail(self):
         self.setStatus(-1)
 
-    def getConfig(self):
+    def runFail(self, errorText_):
+        self.errorText = str(errorText_)
+        if self.execute > self.retry:
+            self.taskFail()
+            return
+        self.setStatus(FAIL)
+
+    def taskStart(self):
         if self.status < 0:
             return None
 
-        if self.retryCount >= self.retryLimit:
-            self.finishError()
+        if self.execute > self.retry:
+            self.taskFail()
             return None
 
         try:
             func = locate(self.func)
         except:
-            self.startError('Invalid function.')
+            self.invalidConfig('Invalid function.')
             return None
 
         try:
             args = agent.deserialize(self.args)
         except:
-            self.startError('Load args fail.')
-            return None
+            self.invalidConfig('Invalid args.')
+            return
 
         try:
             kwargs = agent.deserialize(self.kwargs)
         except BaseException as err_:
-            self.startError('Load kwargs fail.')
-            return None
+            self.invalidConfig('Invalid kwargs.')
+            return
 
+        self.execute += 1
+        self.startStamp = time.time()
+        self.setStatus(RUNNING)
         return {
             'function': func,
             'args': args,
             'kwargs': kwargs,
             'sn': self.taskSn,
         }
+
+    def taskFinish(self, result_):
+        self.result = agent.serialize(result_)
+        try:
+            callback = locate(self.callback)
+
+        except BaseException as err_:
+            self.errorText = ''
+            self.setStatus(-3)
+
+        self.setStatus(100)
 
 
 @dataclass(frozen=True)
