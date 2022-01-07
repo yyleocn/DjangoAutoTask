@@ -127,19 +127,19 @@ class TaskRec(models.Model):
         try:
             func = locate(self.func)
         except:
-            self.invalidConfig('Invalid function.')
+            self.invalidConfig('Invalid function')
             return None
 
         try:
             args = agent.deserialize(self.args)
         except:
-            self.invalidConfig('Invalid args.')
+            self.invalidConfig('Invalid args')
             return
 
         try:
             kwargs = agent.deserialize(self.kwargs)
         except BaseException as err_:
-            self.invalidConfig('Invalid kwargs.')
+            self.invalidConfig('Invalid kwargs')
             return
 
         self.execute += 1
@@ -158,10 +158,10 @@ class TaskRec(models.Model):
             callback = locate(self.callback)
 
         except BaseException as err_:
-            self.errorText = ''
-            self.setStatus(-3)
+            self.errorText = 'Invalid callback'
+            self.setStatus(CALLBACK_ERROR)
 
-        self.setStatus(100)
+        self.setStatus(SUCCESS)
 
 
 @dataclass(frozen=True)
