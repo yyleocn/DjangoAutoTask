@@ -25,8 +25,8 @@ class ReadonlyDict(dict):
 
 
 @dataclass(frozen=True)
-class TaskConfig():
-    func = None
+class TaskConfig:
+    func: Callable = None
     args: tuple = tuple()
     kwargs: ReadonlyDict = field(default_factory=ReadonlyDict)
 
