@@ -7,7 +7,7 @@ from typing import (
     Tuple, List,
 )
 
-from .Core.ImportFunction import importFunction
+from .Core.Component import importFunction
 
 from django.db import models
 
@@ -23,23 +23,29 @@ RUNNING = 10
 RUN_SUCCESS = 100
 
 # task type
-NORMAL_TASK = 0
-SCHEME_TASK = 1
+TASK_TYPE_NORMAL = 0
+TASK_TYPE_SCHEME = 1
+
+# task priority
+TASK_PRIORITY_IDLE = 200
+TASK_PRIORITY_NORMAL = 100
+TASK_PRIORITY_SCHEME = 50
+TASK_PRIORITY_MAX = 10
 
 
 class TaskPackage(models.Model):
     sn = models.BigAutoField(primary_key=True, )
     name = models.TextField(max_length=20, unique=True)  # 名称
-    priority = models.IntegerField(default=0)  # 优先级
-    type = models.IntegerField(default=0)  # 类型
+    priority = models.SmallIntegerField(default=0)  # 优先级
+    type = models.SmallIntegerField(default=0)  # 类型
 
-    createTime = models.BigIntegerField()
+    createTime = models.PositiveBigIntegerField()
     createUser = models.CharField(max_length=20, )
 
-    count = models.IntegerField(default=0, )
-    success = models.IntegerField(default=0, )
-    fail = models.IntegerField(default=0, )
-    remain = models.IntegerField(default=0, )
+    count = models.SmallIntegerField(default=0, )
+    success = models.SmallIntegerField(default=0, )
+    fail = models.SmallIntegerField(default=0, )
+    remain = models.SmallIntegerField(default=0, )
 
     finished = models.BooleanField(default=False, )
 
@@ -55,7 +61,7 @@ class TaskRec(models.Model):
     taskPackage = models.ForeignKey(to=TaskPackage, null=True, on_delete=models.SET_NULL)  # 作业包
 
     type = models.CharField(max_length=10, default='TASK')  # 类型
-    priority = models.IntegerField(default=100)  # 优先级，大值优先
+    priority = models.SmallIntegerField(default=100)  # 优先级，大值优先
 
     func = models.TextField(max_length=30, null=False, blank=False)  # func location string
     args = models.BinaryField()  # args
@@ -64,17 +70,17 @@ class TaskRec(models.Model):
     callback = models.TextField(max_length=30, null=False, blank=False)  # callback func location string
     errorText = models.TextField(max_length=100, null=True, blank=False, default=None)  # 错误信息
 
-    status = models.IntegerField(default=0, )  # 状态
+    status = models.SmallIntegerField(default=0, )  # 状态
 
     lockStamp = models.BigIntegerField(null=True, )  # 锁定时间
     lockSource = models.TextField(null=True, )  # 锁定源
     startStamp = models.BigIntegerField(null=True, )  # 开始时间
-    endStamp = models.BigIntegerField(null=True, )  # 结束时间
-    timeout = models.IntegerField(default=30, )  # 超时
-    delay = models.IntegerField(default=10, )  # 间隔
+    endStamp = models.PositiveBigIntegerField(null=True, )  # 结束时间
+    timeout = models.PositiveSmallIntegerField(default=30, )  # 超时
+    delay = models.PositiveSmallIntegerField(default=10, )  # 间隔
 
-    retry = models.IntegerField(default=0)  # 重试
-    execute = models.IntegerField(default=0)  # 执行次数
+    retry = models.PositiveSmallIntegerField(default=0)  # 重试
+    execute = models.PositiveSmallIntegerField(default=0)  # 执行次数
 
     def setStatus(self, status):
         self.status = status
@@ -95,6 +101,19 @@ class TaskRec(models.Model):
             return
         self.setStatus(RUN_FAIL)
 
+    def running(self):
+        self.execute += 1
+        self.startStamp = time.time()
+        self.setStatus(RUNNING)
+
+    def taskError(self, *_, errorText, errorStatus, ):
+        self.errorText = errorText
+        self.setStatus(errorStatus)
+
+    def setResult(self, result_):
+        self.result = agent.serialize(result_)
+        self.setStatus(RUN_SUCCESS)
+
     def taskRun(self):
         if self.status < 0:
             return None
@@ -106,53 +125,55 @@ class TaskRec(models.Model):
         try:
             func: Callable = importFunction(self.func)
             if not callable(func):
-                raise BaseException()
-        except:
+                self.taskError(
+                    errorText='Task function',
+                    errorStatus=INVALID_CONFIG,
+                )
+        except BaseException:
             self.invalidConfig('Invalid function')
             return None
 
         try:
             args = agent.deserialize(self.args)
-        except:
+        except BaseException:
             self.invalidConfig('Invalid args')
             return None
 
         try:
             kwargs = agent.deserialize(self.kwargs)
-        except BaseException as err_:
+        except BaseException:
             self.invalidConfig('Invalid kwargs')
             return None
 
-        self.execute += 1
-        self.startStamp = time.time()
-        self.setStatus(RUNNING)
-
+        self.running()
         result = func(*args, **kwargs)
+
+        try:
+            self.setResult(result)
+        except BaseException:
+            self.taskError(
+                errorText='',
+                errorStatus=CALLBACK_ERROR,
+            )
 
         if self.callback:
             try:
                 callback: Callable = importFunction(self.callback)
                 if not callable(callback):
-                    raise BaseException('Invalid callback function.')
-            except:
-                self.invalidConfig('Invalid callback')
-                return None
+                    self.taskError(
+                        errorText='Callback is not a function.',
+                        errorStatus=CALLBACK_ERROR,
+                    )
 
-        return {
-            'function': func,
-            'args': args,
-            'kwargs': kwargs,
-            'sn': self.taskSn,
-        }
+            except:
+                self.taskError(
+                    errorText='Callback run error.',
+                    errorStatus=CALLBACK_ERROR,
+                )
 
     def taskFinish(self, result):
         self.result = agent.serialize(result)
         self.setStatus(RUN_SUCCESS)
-
-    def callbackError(self, result):
-        self.result = agent.serialize(result)
-        self.errorText = 'Invalid callback'
-        self.setStatus(CALLBACK_ERROR)
 
     @staticmethod
     def getTaskRec(taskSn):
@@ -163,8 +184,12 @@ class TaskRec(models.Model):
         return TaskRec.objects.get(taskSn=taskSn)
 
     @staticmethod
-    def getTaskQueue(type):
-        taskQuery = TaskRec.objects.filter(type=type).orderBy('-priority', 'startStamp', 'createTime')
+    def getTaskQueue(taskType):
+        taskQuery = TaskRec.objects.filter(
+            type=taskType, status__gt=-100, lockStamp=None,
+        ).orderBy('-priority', 'startStamp', 'createTime')
+        if taskQuery.count() < 1:
+            return None
 
 
 @dataclass(frozen=True)
@@ -173,7 +198,7 @@ class TaskData:
     func: Callable
     args: [List, Tuple] = field(default_factory=list)
     kwargs: dict = field(default_factory=dict)
-    hook: Callable = None
+    callback: [Callable, None] = None
     sync: bool = False
 
 

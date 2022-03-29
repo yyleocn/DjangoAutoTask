@@ -1,6 +1,6 @@
-from .Handler.Agent import Agent
+from .Core.Handler import Handler
 
-agent = Agent()
+agent = Handler()
 
 
 def test():
