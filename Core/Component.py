@@ -95,9 +95,9 @@ def importFunction(path, forceLoad=0) -> Callable:
         try:
             target = getattr(target, part)
         except AttributeError:
-            raise BaseException(f'{path} not exist.')
+            raise Exception(f'{path} not exist.')
     if not isfunction(target):
-        raise BaseException(f'{path} is not a function.')
+        raise Exception(f'{path} is not a function.')
     return target
 
 
