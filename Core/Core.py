@@ -1,71 +1,165 @@
-import time
-from typing import Callable
-from time import time as currentTime
+import signal
 
 from multiprocessing import (
-    Process, JoinableQueue, Pipe, Event,
-    current_process, Value, SimpleQueue, Manager
+    Process, Pipe, parent_process,
+    current_process,
 )
 
-from multiprocessing.managers import SyncManager
+from django.core.exceptions import AppRegistryNotReady
+from django.apps.registry import apps
 
-from queue import PriorityQueue
+try:
+    apps.check_apps_ready()
+except AppRegistryNotReady:
+    import django
 
-from ..models import TaskRec
+    django.setup()
+
+from .Component import *
 
 
 class TaskManager:
-    def __init__(self, *_, poolSize=4, ):
+    @staticmethod
+    def getTask(*args, **kwargs):
+        print(f'Manager getTask called by args: {args}, kwargs: {kwargs}.')
+        return f'Task Data response {time.time():.3f}'
+
+
+class WorkerGroup:
+    def __init__(
+            self, *_,
+            taskManager: SyncManager = None,
+            poolSize=4,
+            processFunc: Callable,
+    ):
+        if taskManager is None:
+            raise Exception('Invalid task manager.')
+
         self.__processPool = []
-        while len(self.__processPool) < poolSize:
-            self.__processPool.append(WorkerProcess(
-                manager=self,
-                runFunc=workerProcessFunc,
-            ))
-
+        self.__poolSize = poolSize
         self.__pid = current_process().pid
-        self.activeTime = Value(int)
 
+        self.__stopEvent = Event()
+        self.__stopEvent.clear()
+        self.__taskManager: SyncManager = taskManager
+        self.__processFunc = processFunc
 
-    @property
-    def pid(self):
-        return {
-            'pid': self.__pid,
-            'workerPid': [
-                worker_.pid for worker_ in self.__processPool
-            ],
-        }
+        def stopSignalHandler(*_, ):
+            print(f'Group {self.pid} receive stop signal @ {currentTimeStr()}.')
+            self.exit()
 
+        signal.signal(signal.SIGINT, stopSignalHandler)
+        signal.signal(signal.SIGTERM, stopSignalHandler)
 
-class WorkerProcess():
-    def __init__(self, *_, manager: TaskManager, runFunc: Callable):
-        if not isinstance(manager, TaskManager):
-            raise BaseException('Invalid TaskManager.')
-        self.__manager = manager
-        self.__activeTime = currentTime()
-        parentConn, childConn = Pipe()
-        self.__pipe = parentConn
+        print(f'Group {self.pid} start to create worker process, pool size is {self.__poolSize}.')
 
-        self.__process = Process(
-            target=runFunc,
-            kwargs={
-                'pipe': childConn,
-            },
-        )
+        self.appendProcess()
 
-    def ping(self):
-        self.__pipe.send(currentTime())
+    def appendProcess(self):
+        if self.__stopEvent.is_set():
+            return None
+        if len(self.__processPool) == self.__poolSize:
+            return None
+        while len(self.__processPool) < self.__poolSize:
+            process = SubProcess(
+                stopEvent=self.__stopEvent,
+                processFunc=self.__processFunc,
+                taskManager=self.__taskManager,
+            )
+            self.__processPool.append(process)
 
     @property
     def pid(self):
-        return self.__process.pid
+        return current_process().pid
 
-    pass
+    @property
+    def workerPid(self):
+        return [
+            process.pid for process in self.__processPool
+        ]
 
+    @property
+    def running(self):
+        return not self.__stopEvent.is_set()
 
-def workerProcessFunc(*_, taskQueue: JoinableQueue):
-    if __name__ == '__main__':
+    @property
+    def stopEvent(self):
+        return self.__stopEvent
+
+    def exit(self):
+        self.__stopEvent.set()
         while True:
-            taskQueue.get()
+            allStop = True
+            for workerProcess in self.__processPool:
+                if workerProcess.is_alive():
+                    allStop = False
+            if allStop:
+                print(f'Group {self.pid} receive exit @ {currentTimeStr()}.')
+                exit()
             time.sleep(1)
-        pass
+
+    def run(self):
+        while True:
+            time.sleep(1)
+            for workerProcess in self.__processPool:
+                workerProcess.checkAlive()
+            self.appendProcess()
+
+
+class SubProcess:
+    __process = None
+
+    def __init__(
+            self, *_,
+            taskManager: SyncManager,
+            stopEvent,
+            processFunc,
+    ):
+        self.__taskManager = taskManager
+        self.__stopEvent = stopEvent
+        self.__processFunc = processFunc
+
+        self.__processAliveTime = time.time()
+        self.__processPipe, self.__pipe = Pipe()
+
+        self.createProcess()
+
+    def createProcess(self):
+        if not parent_process():
+            self.__process = Process(
+                target=self.__processFunc,
+                args=(SubProcessConfig(
+                    stopEvent=self.__stopEvent,
+                    taskManager=self.__taskManager,
+                    pipe=self.__processPipe,
+                ),)
+            )
+            self.__process.start()
+            self.__processAliveTime = time.time()
+        else:
+            print('This is a sub process.')
+
+    def is_alive(self):
+        if not self.__process:
+            return False
+        return self.__process.is_alive()
+
+    def checkAlive(self):
+        if self.__process is None:
+            return None
+
+        while self.__pipe.poll():
+            self.__processAliveTime = self.__pipe.recv()
+
+        if time.time() - self.__processAliveTime > 300:
+            self.__process.terminate()
+
+        if not self.__process.is_alive():
+            self.createProcess()
+            return None
+
+    @property
+    def pid(self):
+        if self.__process is None:
+            return None
+        return self.__process.pid

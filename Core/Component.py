@@ -1,6 +1,9 @@
 import builtins
 import sys
+import time
 
+from multiprocessing import Event
+from multiprocessing.connection import Connection
 from multiprocessing.managers import SyncManager
 from queue import PriorityQueue
 
@@ -130,8 +133,6 @@ class TaskManager(SyncManager):
 TaskManager.register("PriorityQueue", PriorityQueue)  # Register a shared PriorityQueue
 
 
-
-
 @dataclass(frozen=True)
 class TaskConfig:
     func: Callable = None
@@ -140,10 +141,21 @@ class TaskConfig:
 
     def __init__(self, ):
         if not isinstance(self.func, Callable):
-            raise BaseException('Invalid function.')
+            raise Exception('Invalid function.')
 
         if not isinstance(self.args, tuple):
-            raise BaseException('Invalid args.')
+            raise Exception('Invalid args.')
 
         if not isinstance(self.kwargs, ReadonlyDict):
-            raise BaseException('Invalid kwargs.')
+            raise Exception('Invalid kwargs.')
+
+
+@dataclass(frozen=True)
+class SubProcessConfig:
+    taskManager: SyncManager
+    stopEvent: Event
+    pipe: Connection
+
+
+def currentTimeStr():
+    return f'{time.time():.3f}'
