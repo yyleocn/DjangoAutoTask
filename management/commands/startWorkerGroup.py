@@ -2,7 +2,8 @@ from django.core.management.base import BaseCommand, no_translations
 
 from AutoTask.Core.Core import WorkerGroup
 
-from AutoTask.Core.Manager import TaskClientManager
+from AutoTask.Core.Manager import TaskManagerClient
+from AutoTask.Core.Worker import workerProcessFunc
 
 
 class Command(BaseCommand):
@@ -10,8 +11,11 @@ class Command(BaseCommand):
 
     @no_translations
     def handle(self, *args, **options):
+        taskManagerClient = TaskManagerClient(address=('localhost', 33221), authkey=b'AutoTaskTestServer')
+        taskManagerClient.connect()
         workerGroup = WorkerGroup(
-            taskManager=TaskClientManager(address=('localhost', 33221), authkey=b'112233AABBCC')
+            taskManager=taskManagerClient,
+            processFunc=workerProcessFunc,
         )
         try:
             workerGroup.run()
