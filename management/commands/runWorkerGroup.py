@@ -5,19 +5,24 @@ from AutoTask.Core.Core import WorkerGroup, TaskManagerClient
 from AutoTask.Core.Worker import workerProcessFunc
 
 
+def workerGroupInit():
+    taskManagerClient = TaskManagerClient(
+        address=(CONFIG.host, CONFIG.port),
+        authkey=CONFIG.authKey,
+    )
+    workerGroup = WorkerGroup(
+        managerCon=taskManagerClient,
+        processFunc=workerProcessFunc,
+    )
+    return workerGroup
+
+
 class Command(BaseCommand):
     help = "Start auto task worker group."
 
     @no_translations
     def handle(self, *args, **options):
-        taskManagerClient = TaskManagerClient(
-            address=(CONFIG.host, CONFIG.port),
-            authkey=CONFIG.authKey,
-        )
-        workerGroup = WorkerGroup(
-            managerCon=taskManagerClient,
-            processFunc=workerProcessFunc,
-        )
+        workerGroup = workerGroupInit()
         try:
             workerGroup.run()
         except KeyboardInterrupt as intP_:

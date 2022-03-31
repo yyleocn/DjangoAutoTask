@@ -35,7 +35,7 @@ class WorkerGroup:
     def __init__(
             self, *_,
             managerCon: SyncManager = None,
-            poolSize=4,
+            poolSize=CONFIG.workerPoolSize,
             processFunc: Callable,
     ):
         if managerCon is None:
@@ -57,9 +57,18 @@ class WorkerGroup:
         signal.signal(signal.SIGINT, stopSignalHandler)
         signal.signal(signal.SIGTERM, stopSignalHandler)
 
-        print(f'Group {self.pid} start to create worker process, pool size is {self.__poolSize}.')
+        initTime = time.time()
+        while True:
+            try:
+                self.__managerCon.connect()
+                break
+            except:
+                if time.time() - initTime > CONFIG.serverTimeLimit * 2:
+                    self.taskManagerTimeout()
+                print(f'Group {self.pid} connect task manager fail, waiting.')
+                time.sleep(5)
 
-        self.appendProcess()
+        print(f'Group {self.pid} start to create worker process, pool size is {self.__poolSize}.')
 
     def appendProcess(self):
         if self.__exitEvent.is_set():
@@ -104,17 +113,20 @@ class WorkerGroup:
                 exit()
             time.sleep(1)
 
+    def taskManagerTimeout(self):
+        print(f'Connect task manager fail, group {self.pid} exit @ {currentTimeStr()}.')
+        exit()
+
     def run(self):
         serverCheckTime = time.time()
         while True:
-            if time.time() - serverCheckTime > CONFIG.serverTimeLimit:
-                print('TaskManager time out, worker group exit.')
-                exit()
+            if time.time() - serverCheckTime > CONFIG.serverTimeLimit * 2:
+                self.taskManagerTimeout()
 
             try:
                 self.__managerCon.ping()
             except:
-                print('TaskManager server is not running, waiting.')
+                print(f'Connect task manager fail, group {self.pid} waiting.')
                 time.sleep(5)
                 continue
 
@@ -126,6 +138,7 @@ class WorkerGroup:
             time.sleep(1)
 
 
+# -------------------- sub process --------------------
 class SubProcess:
     __process = None
 

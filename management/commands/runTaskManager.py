@@ -7,24 +7,30 @@ from AutoTask.Core.Core import TaskManagerServer
 from AutoTask.Core.Conf import CONFIG
 
 
+def taskManagerInit():
+    server = TaskManagerServer(
+        address=('', CONFIG.port),
+        authkey=CONFIG.authKey,
+    )
+
+    def serverExit(*args):
+        print('Task manager close.')
+        server.shutdown()
+        time.sleep(1)
+        exit()
+
+    signal.signal(signal.SIGINT, serverExit)
+    signal.signal(signal.SIGTERM, serverExit)
+
+    return server
+
+
 class Command(BaseCommand):
     help = "Starts auto task manager."
 
     @no_translations
     def handle(self, *args, **options):
-        server = TaskManagerServer(
-            address=('', CONFIG.port),
-            authkey=CONFIG.authKey,
-        )
-
-        def serverExit(*argsF):
-            print('Task manager close.')
-            server.shutdown()
-            time.sleep(1)
-            exit()
-
-        signal.signal(signal.SIGINT, serverExit)
-        signal.signal(signal.SIGTERM, serverExit)
+        server = taskManagerInit()
 
         server.start()
 
