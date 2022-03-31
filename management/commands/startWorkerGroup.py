@@ -1,8 +1,7 @@
 from django.core.management.base import BaseCommand, no_translations
 
-from AutoTask.Core.Core import WorkerGroup
-
-from AutoTask.Core.Manager import TaskManagerClient
+from AutoTask.Core.Conf import CONFIG
+from AutoTask.Core.Core import WorkerGroup, TaskManagerClient
 from AutoTask.Core.Worker import workerProcessFunc
 
 
@@ -11,10 +10,12 @@ class Command(BaseCommand):
 
     @no_translations
     def handle(self, *args, **options):
-        taskManagerClient = TaskManagerClient(address=('localhost', 33221), authkey=b'AutoTaskTestServer')
-        taskManagerClient.connect()
+        taskManagerClient = TaskManagerClient(
+            address=(CONFIG.host, CONFIG.port),
+            authkey=CONFIG.authKey,
+        )
         workerGroup = WorkerGroup(
-            taskManager=taskManagerClient,
+            managerCon=taskManagerClient,
             processFunc=workerProcessFunc,
         )
         try:

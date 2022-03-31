@@ -1,9 +1,8 @@
+import time
 import signal
-
-from multiprocessing import (
-    Process, Pipe, parent_process,
-    current_process,
-)
+from typing import Callable
+from multiprocessing import (Process, Pipe, parent_process, Event, current_process, )
+from multiprocessing.managers import SyncManager
 
 from django.core.exceptions import AppRegistryNotReady
 from django.apps.registry import apps
@@ -16,32 +15,39 @@ except AppRegistryNotReady:
     django.setup()
 
 from .Component import *
+from .Conf import *
 
 
+# -------------------- Task manager --------------------
 class TaskManager:
     @staticmethod
     def getTask(*args, **kwargs):
         print(f'Manager getTask called by args: {args}, kwargs: {kwargs}.')
         return f'Task Data response {time.time():.3f}'
 
+    @staticmethod
+    def ping(*args, **kwargs):
+        return True
 
+
+# -------------------- Worker group --------------------
 class WorkerGroup:
     def __init__(
             self, *_,
-            taskManager: SyncManager = None,
+            managerCon: SyncManager = None,
             poolSize=4,
             processFunc: Callable,
     ):
-        if taskManager is None:
+        if managerCon is None:
             raise Exception('Invalid task manager.')
 
         self.__processPool = []
         self.__poolSize = poolSize
         self.__pid = current_process().pid
 
-        self.__stopEvent = Event()
-        self.__stopEvent.clear()
-        self.__taskManager: SyncManager = taskManager
+        self.__exitEvent = Event()
+        self.__exitEvent.clear()
+        self.__managerCon: SyncManager = managerCon
         self.__processFunc = processFunc
 
         def stopSignalHandler(*_, ):
@@ -56,15 +62,15 @@ class WorkerGroup:
         self.appendProcess()
 
     def appendProcess(self):
-        if self.__stopEvent.is_set():
+        if self.__exitEvent.is_set():
             return None
         if len(self.__processPool) == self.__poolSize:
             return None
         while len(self.__processPool) < self.__poolSize:
             process = SubProcess(
-                stopEvent=self.__stopEvent,
+                stopEvent=self.__exitEvent,
                 processFunc=self.__processFunc,
-                taskManager=self.__taskManager,
+                manager=self.__managerCon,
             )
             self.__processPool.append(process)
 
@@ -80,14 +86,14 @@ class WorkerGroup:
 
     @property
     def running(self):
-        return not self.__stopEvent.is_set()
+        return not self.__exitEvent.is_set()
 
     @property
-    def stopEvent(self):
-        return self.__stopEvent
+    def exitEvent(self):
+        return self.__exitEvent
 
     def exit(self):
-        self.__stopEvent.set()
+        self.__exitEvent.set()
         while True:
             allStop = True
             for workerProcess in self.__processPool:
@@ -99,11 +105,25 @@ class WorkerGroup:
             time.sleep(1)
 
     def run(self):
+        serverCheckTime = time.time()
         while True:
-            time.sleep(1)
+            if time.time() - serverCheckTime > CONFIG.serverTimeLimit:
+                print('TaskManager time out, worker group exit.')
+                exit()
+
+            try:
+                self.__managerCon.ping()
+            except:
+                print('TaskManager server is not running, waiting.')
+                time.sleep(5)
+                continue
+
+            serverCheckTime = time.time()
+            self.appendProcess()
             for workerProcess in self.__processPool:
                 workerProcess.checkAlive()
-            self.appendProcess()
+
+            time.sleep(1)
 
 
 class SubProcess:
@@ -111,11 +131,11 @@ class SubProcess:
 
     def __init__(
             self, *_,
-            taskManager: SyncManager,
+            manager: SyncManager,
             stopEvent,
             processFunc,
     ):
-        self.__taskManager = taskManager
+        self.__taskManager = manager
         self.__stopEvent = stopEvent
         self.__processFunc = processFunc
 
@@ -151,15 +171,35 @@ class SubProcess:
         while self.__pipe.poll():
             self.__processAliveTime = self.__pipe.recv()
 
-        if time.time() - self.__processAliveTime > 300:
+        if time.time() - self.__processAliveTime > CONFIG.taskTimeLimit:
             self.__process.terminate()
 
         if not self.__process.is_alive():
             self.createProcess()
-            return None
 
     @property
     def pid(self):
         if self.__process is None:
             return None
         return self.__process.pid
+
+
+# -------------------- sync manager --------------------
+
+class TaskManagerServer(SyncManager):
+    pass
+
+
+class TaskManagerClient(SyncManager):
+    pass
+
+
+taskManager = TaskManager()
+syncManagerConfig = {
+    'getTask': taskManager.getTask,
+    'ping': taskManager.ping,
+}
+
+for name_, func_ in syncManagerConfig.items():
+    TaskManagerClient.register(name_, )
+    TaskManagerServer.register(name_, func_, )

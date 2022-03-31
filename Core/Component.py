@@ -5,7 +5,6 @@ import time
 from multiprocessing import Event
 from multiprocessing.connection import Connection
 from multiprocessing.managers import SyncManager
-from queue import PriorityQueue
 
 from dataclasses import dataclass, field
 from inspect import isfunction
@@ -126,13 +125,6 @@ class ReadonlyDict(dict):
     del __readonly__
 
 
-class TaskManager(SyncManager):
-    pass
-
-
-TaskManager.register("PriorityQueue", PriorityQueue)  # Register a shared PriorityQueue
-
-
 @dataclass(frozen=True)
 class TaskConfig:
     func: Callable = None
@@ -159,3 +151,10 @@ class SubProcessConfig:
 
 def currentTimeStr():
     return f'{time.time():.3f}'
+
+
+__all__ = (
+    'TaskConfig', 'ReadonlyDict',
+    'importFunction',
+    'SubProcessConfig', 'currentTimeStr',
+)

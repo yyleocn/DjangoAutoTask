@@ -1,10 +1,10 @@
-from multiprocessing.managers import SyncManager
+import time
+import signal
 
 from django.core.management.base import BaseCommand, no_translations
 
-from AutoTask.Core.Manager import TaskManagerServer
-
-import time
+from AutoTask.Core.Core import TaskManagerServer
+from AutoTask.Core.Conf import CONFIG
 
 
 class Command(BaseCommand):
@@ -13,11 +13,22 @@ class Command(BaseCommand):
     @no_translations
     def handle(self, *args, **options):
         server = TaskManagerServer(
-            address=('', 33221),
-            authkey=b'AutoTaskTestServer',
+            address=('', CONFIG.port),
+            authkey=CONFIG.authKey,
         )
 
+        def serverExit(*argsF):
+            print('Task manager close.')
+            server.shutdown()
+            time.sleep(1)
+            exit()
+
+        signal.signal(signal.SIGINT, serverExit)
+        signal.signal(signal.SIGTERM, serverExit)
+
         server.start()
+
+        print('Task manager start.')
 
         while True:
             print(time.time())

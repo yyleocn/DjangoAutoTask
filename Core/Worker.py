@@ -4,9 +4,10 @@ import signal
 from multiprocessing import current_process, Event
 
 from .Component import SubProcessConfig, currentTimeStr
+from .Conf import CONFIG
 
 
-def workerProcessFunc(config: SubProcessConfig):
+def workerProcessFunc(processConfig: SubProcessConfig):
     initTime = time.time()
     pid = current_process().pid
     stopEvent = Event()
@@ -20,22 +21,30 @@ def workerProcessFunc(config: SubProcessConfig):
     signal.signal(signal.SIGINT, stopSignalHandler)
     signal.signal(signal.SIGTERM, stopSignalHandler)
 
+    systemCheckTime = time.time()
+
     while True:
-        config.pipe.send(time.time())
+        if processConfig.stopEvent.is_set() or stopEvent.is_set():
+            print(f'Worker {pid} exit @ {currentTimeStr()}.')
+            exit()
+
+        processConfig.pipe.send(time.time())
+        if time.time() - systemCheckTime > CONFIG.serverTimeLimit:
+            print(f'TaskManager timeout , worker {pid} exit.')
+            exit()
+
         try:
-            taskData = config.taskManager.getTask(
+            taskData = processConfig.taskManager.getTask(
                 time=time.time(),
                 message='Hello',
             )
-            print(taskData)
-        except:
-            pass
+            systemCheckTime = time.time()
+        except BaseException as err_:
+            print(err_)
+            time.sleep(5)
+            continue
+
+        print(f'TaskData is {taskData}.')
         print(f'Worker {pid} is running.', )
 
-        if time.time() - initTime > 20:
-            break
-
-        time.sleep(3 + random.random() * 3)
-        if config.stopEvent.is_set() or stopEvent.is_set():
-            print(f'Worker {pid} exit @ {currentTimeStr()}.')
-            exit()
+        time.sleep(2 + random.random() * 5)
