@@ -7,7 +7,7 @@ from .Component import SubProcessConfig, currentTimeStr
 from .Conf import CONFIG
 
 
-def workerProcessFunc(processConfig: SubProcessConfig):
+def workerProcessFunc(processConfig: SubProcessConfig, *args, **kwargs):
     initTime = time.time()
     pid = current_process().pid
     stopEvent = Event()
@@ -29,19 +29,17 @@ def workerProcessFunc(processConfig: SubProcessConfig):
             exit()
 
         processConfig.pipe.send(time.time())
-        if time.time() - systemCheckTime > CONFIG.serverTimeLimit:
+        print(time.time() - systemCheckTime)
+        if time.time() - systemCheckTime > CONFIG.taskManagerTimeout:
             print(f'TaskManager timeout , worker {pid} exit.')
             exit()
 
         try:
-            taskData = processConfig.taskManager.getTask(
-                time=time.time(),
-                message='Hello',
-            )
+            taskData = processConfig.taskManager.getTask(worker=f'{processConfig.localName}|{pid}')
             systemCheckTime = time.time()
         except BaseException as err_:
             print(err_)
-            time.sleep(5)
+            time.sleep(1)
             continue
 
         print(f'TaskData is {taskData}.')

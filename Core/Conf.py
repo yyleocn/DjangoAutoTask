@@ -19,7 +19,8 @@ class AutoTaskConfig:
     workerPoolSize: int = 2
 
     taskTimeLimit: int = 300
-    serverTimeLimit: int = 60
+    taskManagerTimeout: int = 60
+    name: str = 'AutoTask'
 
 
 CONFIG = AutoTaskConfig(**config)

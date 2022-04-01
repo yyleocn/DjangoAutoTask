@@ -147,6 +147,7 @@ class SubProcessConfig:
     taskManager: SyncManager
     stopEvent: Event
     pipe: Connection
+    localName: str
 
 
 def currentTimeStr():

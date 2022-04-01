@@ -26,7 +26,15 @@ class TaskManager:
         return f'Task Data response {time.time():.3f}'
 
     @staticmethod
-    def ping(*args, **kwargs):
+    def ping(*_, **kwargs):
+        return True
+
+    @staticmethod
+    def taskFinish(*_, **kwargs):
+        return True
+
+    @staticmethod
+    def taskError(*_, errorCode: int = 0, **kwargs):
         return True
 
 
@@ -43,7 +51,6 @@ class WorkerGroup:
 
         self.__processPool = []
         self.__poolSize = poolSize
-        self.__pid = current_process().pid
 
         self.__exitEvent = Event()
         self.__exitEvent.clear()
@@ -59,14 +66,14 @@ class WorkerGroup:
 
         initTime = time.time()
         while True:
+            if self.__exitEvent.is_set():
+                break
             try:
                 self.__managerCon.connect()
                 break
             except:
-                if time.time() - initTime > CONFIG.serverTimeLimit * 2:
-                    self.taskManagerTimeout()
                 print(f'Group {self.pid} connect task manager fail, waiting.')
-                time.sleep(5)
+                time.sleep(2)
 
         print(f'Group {self.pid} start to create worker process, pool size is {self.__poolSize}.')
 
@@ -94,10 +101,6 @@ class WorkerGroup:
         ]
 
     @property
-    def running(self):
-        return not self.__exitEvent.is_set()
-
-    @property
     def exitEvent(self):
         return self.__exitEvent
 
@@ -109,25 +112,20 @@ class WorkerGroup:
                 if workerProcess.is_alive():
                     allStop = False
             if allStop:
-                print(f'Group {self.pid} receive exit @ {currentTimeStr()}.')
+                print(f'Group {self.pid} exit @ {currentTimeStr()}.')
                 exit()
-            time.sleep(1)
-
-    def taskManagerTimeout(self):
-        print(f'Connect task manager fail, group {self.pid} exit @ {currentTimeStr()}.')
-        exit()
+            time.sleep(0.2)
 
     def run(self):
         serverCheckTime = time.time()
         while True:
-            if time.time() - serverCheckTime > CONFIG.serverTimeLimit * 2:
-                self.taskManagerTimeout()
-
+            if self.__exitEvent.is_set():
+                break
             try:
                 self.__managerCon.ping()
             except:
                 print(f'Connect task manager fail, group {self.pid} waiting.')
-                time.sleep(5)
+                time.sleep(2)
                 continue
 
             serverCheckTime = time.time()
@@ -136,6 +134,7 @@ class WorkerGroup:
                 workerProcess.checkAlive()
 
             time.sleep(1)
+        self.exit()
 
 
 # -------------------- sub process --------------------
@@ -161,11 +160,14 @@ class SubProcess:
         if not parent_process():
             self.__process = Process(
                 target=self.__processFunc,
-                args=(SubProcessConfig(
-                    stopEvent=self.__stopEvent,
-                    taskManager=self.__taskManager,
-                    pipe=self.__processPipe,
-                ),)
+                args=(
+                    SubProcessConfig(
+                        stopEvent=self.__stopEvent,
+                        taskManager=self.__taskManager,
+                        pipe=self.__processPipe,
+                        localName=CONFIG.name,
+                    ),
+                ),
             )
             self.__process.start()
             self.__processAliveTime = time.time()
@@ -193,6 +195,8 @@ class SubProcess:
     @property
     def pid(self):
         if self.__process is None:
+            return None
+        if not self.__process.is_alive():
             return None
         return self.__process.pid
 
