@@ -5,28 +5,29 @@ from django.core.management.base import BaseCommand, no_translations
 
 from AutoTask.Core.Core import TaskManagerServer
 from AutoTask.Core.Conf import CONFIG
+from AutoTask.Core.Component import currentTimeStr
 
 
 def taskManagerInit():
-    server = TaskManagerServer(
+    managerServer = TaskManagerServer(
         address=('', CONFIG.port),
         authkey=CONFIG.authKey,
     )
 
     def serverExit(*args):
-        print('Task manager close.')
-        server.shutdown()
+        print(f'Task manager close @ {currentTimeStr()}')
+        managerServer.shutdown()
         time.sleep(1)
         exit()
 
     signal.signal(signal.SIGINT, serverExit)
     signal.signal(signal.SIGTERM, serverExit)
 
-    return server
+    return managerServer
 
 
 class Command(BaseCommand):
-    help = "Starts auto task manager."
+    help = "Starts AutoTask manager."
 
     @no_translations
     def handle(self, *args, **options):
@@ -34,8 +35,8 @@ class Command(BaseCommand):
 
         server.start()
 
-        print('Task manager start.')
+        print(f'Task manager start @ {currentTimeStr()}')
 
         while True:
-            print(time.time())
+            print(f'Task manager is running @ {currentTimeStr()}')
             time.sleep(10)

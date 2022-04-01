@@ -16,7 +16,7 @@ class AutoTaskConfig:
     port: int = 8898
     authKey: bytes = b'AuthKey'
 
-    workerPoolSize: int = 2
+    poolSize: int = 2
 
     taskTimeLimit: int = 300
     taskManagerTimeout: int = 60

@@ -2,7 +2,7 @@ import time
 import signal
 from typing import Callable
 from multiprocessing import (Process, Pipe, parent_process, Event, current_process, )
-from multiprocessing.managers import SyncManager
+from multiprocessing.managers import SyncManager, BaseManager
 
 from django.core.exceptions import AppRegistryNotReady
 from django.apps.registry import apps
@@ -22,11 +22,20 @@ from .Conf import *
 class TaskManager:
     @staticmethod
     def getTask(*args, **kwargs):
-        print(f'Manager getTask called by args: {args}, kwargs: {kwargs}.')
-        return f'Task Data response {time.time():.3f}'
+        print(f'Manager getTask called by\n    args: {args}, kwargs: {kwargs}.')
+        return TaskConfig(
+            sn=100001,
+            func='test',
+            args=('A', 'B', 'C'),
+            kwargs={
+                'a': 1,
+                'b': 2,
+            },
+        )
 
     @staticmethod
     def ping(*_, **kwargs):
+        print(f'Ping task manager @ {currentTimeStr()}')
         return True
 
     @staticmethod
@@ -38,12 +47,12 @@ class TaskManager:
         return True
 
 
-# -------------------- Worker group --------------------
-class WorkerGroup:
+# -------------------- process group --------------------
+class ProcessGroup:
     def __init__(
             self, *_,
             managerCon: SyncManager = None,
-            poolSize=CONFIG.workerPoolSize,
+            poolSize=CONFIG.poolSize,
             processFunc: Callable,
     ):
         if managerCon is None:
@@ -75,7 +84,7 @@ class WorkerGroup:
                 print(f'Group {self.pid} connect task manager fail, waiting.')
                 time.sleep(2)
 
-        print(f'Group {self.pid} start to create worker process, pool size is {self.__poolSize}.')
+        print(f'Group {self.pid} start to create process, pool size is {self.__poolSize}.')
 
     def appendProcess(self):
         if self.__exitEvent.is_set():
@@ -95,7 +104,7 @@ class WorkerGroup:
         return current_process().pid
 
     @property
-    def workerPid(self):
+    def subPid(self):
         return [
             process.pid for process in self.__processPool
         ]
@@ -108,8 +117,8 @@ class WorkerGroup:
         self.__exitEvent.set()
         while True:
             allStop = True
-            for workerProcess in self.__processPool:
-                if workerProcess.is_alive():
+            for subProcess in self.__processPool:
+                if subProcess.is_alive():
                     allStop = False
             if allStop:
                 print(f'Group {self.pid} exit @ {currentTimeStr()}.')
@@ -123,15 +132,15 @@ class WorkerGroup:
                 break
             try:
                 self.__managerCon.ping()
-            except:
-                print(f'Connect task manager fail, group {self.pid} waiting.')
+            except Exception as err_:
+                print(f'Group {self.pid} connect task manager fail: {err_}')
                 time.sleep(2)
                 continue
 
             serverCheckTime = time.time()
             self.appendProcess()
-            for workerProcess in self.__processPool:
-                workerProcess.checkAlive()
+            for subProcess in self.__processPool:
+                subProcess.checkAlive()
 
             time.sleep(1)
         self.exit()

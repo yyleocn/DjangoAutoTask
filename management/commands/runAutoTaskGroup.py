@@ -1,29 +1,29 @@
 from django.core.management.base import BaseCommand, no_translations
 
 from AutoTask.Core.Conf import CONFIG
-from AutoTask.Core.Core import WorkerGroup, TaskManagerClient
-from AutoTask.Core.Worker import workerProcessFunc
+from AutoTask.Core.Core import ProcessGroup, TaskManagerClient
+from AutoTask.Core.Process import processFunc
 
 
-def workerGroupInit():
+def processGroupInit():
     taskManagerClient = TaskManagerClient(
         address=(CONFIG.host, CONFIG.port),
         authkey=CONFIG.authKey,
     )
-    workerGroup = WorkerGroup(
+    processGroup = ProcessGroup(
         managerCon=taskManagerClient,
-        processFunc=workerProcessFunc,
+        processFunc=processFunc,
     )
-    return workerGroup
+    return processGroup
 
 
 class Command(BaseCommand):
-    help = "Start auto task worker group."
+    help = "Start AutoTask process group."
 
     @no_translations
     def handle(self, *args, **options):
-        workerGroup = workerGroupInit()
+        processGroup = processGroupInit()
         try:
-            workerGroup.run()
+            processGroup.run()
         except KeyboardInterrupt as intP_:
-            workerGroup.exit()
+            processGroup.exit()

@@ -1,6 +1,7 @@
 import builtins
 import sys
 import time
+import datetime
 
 from multiprocessing import Event
 from multiprocessing.connection import Connection
@@ -127,19 +128,10 @@ class ReadonlyDict(dict):
 
 @dataclass(frozen=True)
 class TaskConfig:
-    func: Callable = None
+    sn: int
+    func: str = None
     args: tuple = tuple()
-    kwargs: ReadonlyDict = field(default_factory=ReadonlyDict)
-
-    def __init__(self, ):
-        if not isinstance(self.func, Callable):
-            raise Exception('Invalid function.')
-
-        if not isinstance(self.args, tuple):
-            raise Exception('Invalid args.')
-
-        if not isinstance(self.kwargs, ReadonlyDict):
-            raise Exception('Invalid kwargs.')
+    kwargs: dict = dict
 
 
 @dataclass(frozen=True)
@@ -151,7 +143,7 @@ class SubProcessConfig:
 
 
 def currentTimeStr():
-    return f'{time.time():.3f}'
+    return f'''{time.strftime('%Y-%m-%d_%H:%M', time.localtime())}'''
 
 
 __all__ = (
