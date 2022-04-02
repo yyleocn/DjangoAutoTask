@@ -1,12 +1,12 @@
 from django.core.management.base import BaseCommand, no_translations
 
 from AutoTask.Core.Conf import CONFIG
-from AutoTask.Core.Core import ProcessGroup, TaskManagerClient
+from AutoTask.Core.Core import ProcessGroup, ManagerClient
 from AutoTask.Core.Process import processFunc
 
 
 def processGroupInit():
-    taskManagerClient = TaskManagerClient(
+    taskManagerClient = ManagerClient(
         address=(CONFIG.host, CONFIG.port),
         authkey=CONFIG.authKey,
     )

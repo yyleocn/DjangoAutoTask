@@ -143,7 +143,7 @@ class SubProcessConfig:
 
 
 def currentTimeStr():
-    return f'''{time.strftime('%Y-%m-%d_%H:%M', time.localtime())}'''
+    return f'''{time.strftime('%Y-%m-%d_%H:%M:%S', time.localtime())}'''
 
 
 __all__ = (

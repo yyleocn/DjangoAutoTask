@@ -2,7 +2,7 @@ import time
 import signal
 from typing import Callable
 from multiprocessing import (Process, Pipe, parent_process, Event, current_process, )
-from multiprocessing.managers import SyncManager, BaseManager
+from multiprocessing.managers import SyncManager
 
 from django.core.exceptions import AppRegistryNotReady
 from django.apps.registry import apps
@@ -20,30 +20,41 @@ from .Conf import *
 
 # -------------------- Task manager --------------------
 class TaskManager:
-    @staticmethod
-    def getTask(*args, **kwargs):
+    def __init__(self):
+        print(f'Task manager {current_process().pid} init.')
+        self.__lock = False
+        self.__taskList = []
+
+    def lock(self):
+        self.__lock = True
+
+    def unlock(self):
+        self.__lock = False
+
+    def appendTask(self):
+        self.__taskList.append('Task')
+
+    def getTask(self, *args, **kwargs):
         print(f'Manager getTask called by\n    args: {args}, kwargs: {kwargs}.')
+        if self.__lock:
+            return None
         return TaskConfig(
             sn=100001,
             func='test',
             args=('A', 'B', 'C'),
             kwargs={
-                'a': 1,
-                'b': 2,
+                'taskCount': len(self.__taskList),
             },
         )
 
-    @staticmethod
-    def ping(*_, **kwargs):
+    def ping(self, *_, **kwargs):
         print(f'Ping task manager @ {currentTimeStr()}')
         return True
 
-    @staticmethod
-    def taskFinish(*_, **kwargs):
+    def taskFinish(self, *_, **kwargs):
         return True
 
-    @staticmethod
-    def taskError(*_, errorCode: int = 0, **kwargs):
+    def taskError(self, *_, errorCode: int = 0, **kwargs):
         return True
 
 
@@ -98,6 +109,7 @@ class ProcessGroup:
                 manager=self.__managerCon,
             )
             self.__processPool.append(process)
+            time.sleep(0.1)
 
     @property
     def pid(self):
@@ -131,7 +143,7 @@ class ProcessGroup:
             if self.__exitEvent.is_set():
                 break
             try:
-                self.__managerCon.ping()
+                pingRes = self.__managerCon.ping()._getvalue()
             except Exception as err_:
                 print(f'Group {self.pid} connect task manager fail: {err_}')
                 time.sleep(2)
@@ -142,7 +154,7 @@ class ProcessGroup:
             for subProcess in self.__processPool:
                 subProcess.checkAlive()
 
-            time.sleep(1)
+            time.sleep(5)
         self.exit()
 
 
@@ -212,20 +224,36 @@ class SubProcess:
 
 # -------------------- sync manager --------------------
 
-class TaskManagerServer(SyncManager):
+class ManagerServer(SyncManager):
     pass
 
 
-class TaskManagerClient(SyncManager):
+class ManagerAdmin(SyncManager):
     pass
 
 
-taskManager = TaskManager()
-syncManagerConfig = {
-    'getTask': taskManager.getTask,
-    'ping': taskManager.ping,
-}
+def managerServerRegister():
+    taskManager = TaskManager()
 
-for name_, func_ in syncManagerConfig.items():
-    TaskManagerClient.register(name_, )
-    TaskManagerServer.register(name_, func_, )
+    syncManagerConfig = {
+        'getTask': taskManager.getTask,
+        'ping': taskManager.ping,
+    }
+
+    for name_ in taskManager.__dir__():
+        if name_[0] == '_':
+            continue
+        func_ = getattr(taskManager, name_)
+        if callable(func_):
+            ManagerServer.register(name_, func_, )
+            ManagerAdmin.register(name_, )
+
+
+class ManagerClient(SyncManager):
+    pass
+
+
+managerClientFunc = ('getTask', 'ping',)
+
+for name_ in managerClientFunc:
+    ManagerClient.register(name_)
