@@ -1,107 +1,146 @@
-import time
-from dataclasses import dataclass, field
-from typing import (
-    Iterable,
-    Union,
-    Callable,
-    Tuple, List,
-)
-
-from .Core.Component import importFunction
-
 from django.db import models
 
-# from AutoTask.config import agent
-from AutoTask.Core.Component import TaskConfig
+
+class UserField(models.CharField):
+    def __init__(self, *args, **kwargs):
+        kwargs['max_length'] = 20
+        kwargs['blank'] = False
+        if kwargs.get('null'):
+            kwargs['default'] = None
+        super().__init__(*args, **kwargs)
 
 
-# task status
-@dataclass(frozen=True)
-class TaskStatus:
-    invalidConfig: int = -999
-    callbackError: int = -200
-    fail: int = -100
-    retry: int = -50
-    normal: int = 0
-    success: int = 100
-    finish: int = 200
+class TimeStampField(models.BigIntegerField):
+    pass
 
 
-@dataclass(frozen=True)
-class TaskType:
-    normal: int = 0
-    scheme: int = 1
+class TaskScheme(models.Model):
+    schemeSn = models.AutoField(primary_key=True)  # scheme sn
 
+    # -------------------- create --------------------
+    createTime = TimeStampField(null=False)
+    createUser = UserField(null=False)
 
-@dataclass(frozen=True)
-class TaskPriority:
-    max: int = 10
-    scheme: int = 50
-    normal: int = 100
-    idle: int = 200
-    pause: int = 1000
-    cancel: int = 10000
+    # -------------------- priority --------------------
+    class PriorityChoices(models.IntegerChoices):
+        max = 10
+        scheme = 50
+        normal = 100
+        idle = 200
+        pause = 1000
 
-
-TASK_STATUS = TaskStatus()
-
-TASK_TYPE = TaskType()
-
-TASK_PRIORITY = TaskPriority()
+    priority = models.SmallIntegerField(choices=PriorityChoices.choices, default=PriorityChoices.normal)  # 优先级
 
 
 class TaskPackage(models.Model):
     sn = models.BigAutoField(primary_key=True, )
-    name = models.TextField(max_length=20, unique=True)  # 名称
-    priority = models.SmallIntegerField(default=0)  # 优先级
+    name = models.CharField(max_length=30, unique=True)  # 名称
+
+    # -------------------- create --------------------
+    createTime = TimeStampField(null=False)
+    createUser = UserField(null=False)
+
+    # -------------------- priority --------------------
+    class PriorityChoices(models.IntegerChoices):
+        max = 10
+        scheme = 50
+        normal = 100
+        idle = 200
+        pause = 1000
+
+    priority = models.SmallIntegerField(choices=PriorityChoices.choices, default=PriorityChoices.normal)  # 优先级
+
+    # -------------------- type --------------------
+    class TypeChoices(models.IntegerChoices):
+        normal = 0
+        scheme = 1
+
     type = models.SmallIntegerField(default=0)  # 类型
 
-    createTime = models.PositiveBigIntegerField()
-    createUser = models.CharField(max_length=20, )
+    schemeRec = models.ForeignKey(to=TaskScheme, null=True, on_delete=models.SET_NULL)
 
-    count = models.SmallIntegerField(default=0, )
-    success = models.SmallIntegerField(default=0, )
-    fail = models.SmallIntegerField(default=0, )
-    remain = models.SmallIntegerField(default=0, )
+    schemeTime = TimeStampField(null=False)  # 计划时间
 
+    count = models.PositiveIntegerField(default=0, )
+    success = models.PositiveIntegerField(default=0, )
+    fail = models.PositiveIntegerField(default=0, )
+    remain = models.PositiveIntegerField(default=0, )
     finished = models.BooleanField(default=False, )
 
 
 class TaskRec(models.Model):
     taskSn = models.BigAutoField(primary_key=True)  # task sn
 
-    createTime = models.BigIntegerField()  # 创建时间
-    createUser = models.CharField(max_length=20, null=False, blank=False)  # 创建人
+    # -------------------- create --------------------
+    createTime = TimeStampField(null=False)
+    createUser = UserField(null=False)
 
-    name = models.TextField(max_length=100, null=True, )  # 作业名称
-    group = models.TextField(max_length=100, null=True, )  # 分组
+    # --------------------  --------------------
+    name = models.CharField(max_length=50, null=True, )  # 作业名称
+    group = models.CharField(max_length=50, null=True, )  # 分组
     taskPackage = models.ForeignKey(to=TaskPackage, null=True, on_delete=models.SET_NULL)  # 作业包
 
-    type = models.CharField(max_length=10, default='TASK')  # 类型
-    priority = models.SmallIntegerField(default=100)  # 优先级，大值优先
+    # -------------------- type --------------------
+    class TypeChoices(models.IntegerChoices):
+        normal = 0
+        scheme = 1
 
-    func = models.TextField(max_length=30, null=False, blank=False)  # func location string
+    type = models.PositiveSmallIntegerField(
+        null=False,
+        choices=TypeChoices.choices,
+        default=TypeChoices.normal,
+    )  # 类型
+
+    # -------------------- priority --------------------
+    class PriorityChoices(models.IntegerChoices):
+        max = 10
+        scheme = 50
+        normal = 100
+        idle = 200
+        pause = 1000
+
+    priority = models.SmallIntegerField(
+        null=False,
+        choices=PriorityChoices.choices,
+        default=PriorityChoices.normal,
+    )  # 优先级，小值优先
+
+    # -------------------- task config --------------------
+    func = models.CharField(
+        null=False, blank=False,
+        max_length=30,
+    )  # func location string
     args = models.BinaryField()  # args
     kwargs = models.BinaryField()  # kwargs
     result = models.BinaryField(null=True, )  # return value
-    callback = models.TextField(max_length=30, null=False, blank=False)  # callback func location string
-    errorText = models.TextField(max_length=100, null=True, blank=False, default=None)  # 错误信息
+    callback = models.CharField(
+        null=True, blank=False,
+        max_length=30, default=None,
+    )  # callback func location string
 
-    # status code:
-    # -999  invalid config
-    # -110  callback error
-    #  -10  run fail
-    #    0  init
-    #  100  success
-    #  110  callback finish
-    status = models.SmallIntegerField(default=0, )  # 状态
+    # -------------------- status --------------------
+    class StatusChoices(models.IntegerChoices):
+        invalid_config = -999
+        callback_error = -200
+        fail = -100
+        retry = -50
+        normal = 0
+        success = 100
+        finish = 200
 
-    lockStamp = models.BigIntegerField(null=True, )  # 锁定时间
-    lockSource = models.TextField(null=True, )  # 锁定源
-    startStamp = models.BigIntegerField(null=True, )  # 开始时间
-    endStamp = models.PositiveBigIntegerField(null=True, )  # 结束时间
-    timeout = models.PositiveSmallIntegerField(default=30, )  # 超时
-    delay = models.PositiveSmallIntegerField(default=10, )  # 间隔
+    status = models.SmallIntegerField(null=False, choices=StatusChoices.choices, default=StatusChoices.normal, )  # 状态
+    errorText = models.CharField(max_length=100, null=True, blank=False, default=None)  # 错误信息
+
+    # -------------------- time stamp --------------------
+    schemeTime = TimeStampField(null=False)  # 计划时间
+
+    startTime = TimeStampField(null=True)  # 开始时间
+    executorName = models.CharField(null=True, max_length=50)  # process name
+
+    endTime = TimeStampField(null=True)  # 结束时间
+
+    timeLimit = models.PositiveSmallIntegerField(null=True)  # 运行时限
+    delay = models.PositiveSmallIntegerField(default=10, null=False)  # 间隔
 
     retry = models.PositiveSmallIntegerField(default=0)  # 重试
     execute = models.PositiveSmallIntegerField(default=0)  # 执行次数
@@ -117,8 +156,10 @@ class TaskRec(models.Model):
     @classmethod
     def getTaskQueue(cls, taskType, limit: int = 100):
         taskQuery = cls.objects.filter(
-            type=taskType, status__gt=TASK_STATUS.fail, lockStamp=None, priority__lt=TASK_PRIORITY.pause,
-        ).orderBy('-priority', 'startStamp', 'createTime')[:limit]
+            type=taskType, lockTime=None,
+            status__gt=TaskRec.StatusChoices.fail,
+            priority__lt=TaskRec.PriorityChoices.pause,
+        ).orderBy('-priority', 'startTime', 'createTime')[:limit]
 
         if taskQuery.count() < 1:
             return None
@@ -146,7 +187,7 @@ class TaskRec(models.Model):
     #
     # def running(self):
     #     self.execute += 1
-    #     self.startStamp = time.time()
+    #     self.startTime = time.time()
     #     self.setStatus(RUNNING)
     #
     # def taskError(self, *_, errorText, errorStatus, ):
@@ -218,16 +259,3 @@ class TaskRec(models.Model):
     #     self.result = agent.serialize(result)
     #     self.setStatus(RUN_SUCCESS)
     #
-
-
-@dataclass(frozen=True)
-class TaskData:
-    sn: int
-    func: Callable
-    args: [List, Tuple] = field(default_factory=list)
-    kwargs: dict = field(default_factory=dict)
-    callback: [Callable, None] = None
-    sync: bool = False
-
-
-TaskDataArrayType = Union[List[TaskData], Tuple[TaskData]]

@@ -1,15 +1,16 @@
 import builtins
 import sys
 import time
-import datetime
 
 from multiprocessing import Event
 from multiprocessing.connection import Connection
 from multiprocessing.managers import SyncManager
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from inspect import isfunction
 from typing import Callable
+
+from .Conf import CONFIG
 
 
 class ErrorDuringImport(Exception):
@@ -127,14 +128,6 @@ class ReadonlyDict(dict):
 
 
 @dataclass(frozen=True)
-class TaskConfig:
-    sn: int
-    func: str = None
-    args: tuple = tuple()
-    kwargs: dict = dict
-
-
-@dataclass(frozen=True)
 class SubProcessConfig:
     taskManager: SyncManager
     stopEvent: Event
@@ -145,6 +138,26 @@ class SubProcessConfig:
 def currentTimeStr():
     return f'''{time.strftime('%Y-%m-%d_%H:%M:%S', time.localtime())}'''
 
+
+@dataclass(frozen=True)
+class TaskConfig:
+    sn: int
+    func: str
+    args: (list, tuple,)
+    kwargs: dict
+    timeLimit: int = CONFIG.taskTimeLimit
+    callback: [str, None, ] = None
+    combineHash: int = None
+
+
+# @dataclass(frozen=True)
+# class TaskData:
+#     sn: int
+#     func: Callable
+#     args: [List, Tuple] = field(default_factory=list)
+#     kwargs: dict = field(default_factory=dict)
+#     callback: [Callable, None] = None
+#     sync: bool = False
 
 __all__ = (
     'TaskConfig', 'ReadonlyDict',

@@ -18,9 +18,10 @@ class AutoTaskConfig:
 
     poolSize: int = 2
 
-    taskTimeLimit: int = 300
+    taskTimeLimit: int = 30
     taskManagerTimeout: int = 60
     name: str = 'AutoTask'
+    secretKey: str = 'SecretKey'
 
 
 CONFIG = AutoTaskConfig(**config)

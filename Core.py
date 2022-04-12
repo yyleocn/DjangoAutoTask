@@ -16,14 +16,18 @@ except AppRegistryNotReady:
 
 from .Component import *
 from .Conf import *
+from .Handler import AutoTaskHandler
 
 
 # -------------------- Task manager --------------------
 class TaskManager:
-    def __init__(self):
+    def __init__(self, *_, handler: AutoTaskHandler, **kwargs):
         print(f'Task manager {current_process().pid} init.')
         self.__lock = False
         self.__taskList = []
+        if not isinstance(handler, AutoTaskHandler):
+            raise Exception('Invalid auto task handler.')
+        self.__hander = handler
 
     def lock(self):
         self.__lock = True
@@ -51,7 +55,9 @@ class TaskManager:
         print(f'Ping task manager @ {currentTimeStr()}')
         return True
 
-    def taskFinish(self, *_, **kwargs):
+    def taskFinish(self, *_, taskSn: int = None, **kwargs):
+        if not isinstance(taskSn, int):
+            return None
         return True
 
     def taskError(self, *_, errorCode: int = 0, **kwargs):
@@ -59,7 +65,7 @@ class TaskManager:
 
 
 # -------------------- process group --------------------
-class ProcessGroup:
+class ExecutorGroup:
     def __init__(
             self, *_,
             managerCon: SyncManager = None,
@@ -138,7 +144,7 @@ class ProcessGroup:
             time.sleep(0.2)
 
     def run(self):
-        serverCheckTime = time.time()
+        # serverCheckTime = time.time()
         while True:
             if self.__exitEvent.is_set():
                 break
@@ -149,7 +155,7 @@ class ProcessGroup:
                 time.sleep(2)
                 continue
 
-            serverCheckTime = time.time()
+            # serverCheckTime = time.time()
             self.appendProcess()
             for subProcess in self.__processPool:
                 subProcess.checkAlive()
