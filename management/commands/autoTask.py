@@ -3,8 +3,7 @@ import time
 
 from django.core.management.base import BaseCommand, no_translations
 
-from ...Component import currentTimeStr
-from ...Conf import CONFIG
+from ...Component import currentTimeStr, CONFIG
 from ...Core import ExecutorGroup, ManagerClient, managerServerRegister, ManagerServer, ManagerAdmin
 from ...Process import processFunc
 

@@ -10,7 +10,33 @@ from dataclasses import dataclass
 from inspect import isfunction
 from typing import Callable
 
-from .Conf import CONFIG
+from django.conf import settings
+
+config = {
+}
+
+if hasattr(settings, 'AUTO_TASK'):
+    config.update(
+        settings.AUTO_TASK
+    )
+
+
+@dataclass(frozen=True)
+class AutoTaskConfig:
+    host: str = 'localhost'
+    port: int = 8898
+    authKey: bytes = b'AuthKey'
+
+    poolSize: int = 2
+    processLifeTime: int = 600
+
+    taskTimeLimit: int = 30
+    taskManagerTimeout: int = 60
+    name: str = 'AutoTask'
+    secretKey: str = 'SecretKey'
+
+
+CONFIG = AutoTaskConfig(**config)
 
 
 class ErrorDuringImport(Exception):
@@ -129,6 +155,7 @@ class ReadonlyDict(dict):
 
 @dataclass(frozen=True)
 class SubProcessConfig:
+    sn: int
     taskManager: SyncManager
     stopEvent: Event
     pipe: Connection
@@ -143,23 +170,16 @@ def currentTimeStr():
 class TaskConfig:
     sn: int
     func: str
-    args: (list, tuple,)
-    kwargs: dict
+    args: str
+    kwargs: str
+    combine: [int, None] = None
+
     timeLimit: int = CONFIG.taskTimeLimit
     callback: [str, None, ] = None
-    combineHash: int = None
 
-
-# @dataclass(frozen=True)
-# class TaskData:
-#     sn: int
-#     func: Callable
-#     args: [List, Tuple] = field(default_factory=list)
-#     kwargs: dict = field(default_factory=dict)
-#     callback: [Callable, None] = None
-#     sync: bool = False
 
 __all__ = (
+    'CONFIG',
     'TaskConfig', 'ReadonlyDict',
     'importFunction',
     'SubProcessConfig', 'currentTimeStr',

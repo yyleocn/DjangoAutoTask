@@ -3,8 +3,8 @@ import random
 import signal
 from multiprocessing import current_process, Event
 
-from .Component import SubProcessConfig, currentTimeStr, TaskConfig
-from .Conf import CONFIG
+from .Component import SubProcessConfig, currentTimeStr, TaskConfig, CONFIG
+from .Handler import AutoTaskHandler
 
 
 def processFunc(processConfig: SubProcessConfig, *args, **kwargs):
@@ -12,10 +12,13 @@ def processFunc(processConfig: SubProcessConfig, *args, **kwargs):
     pid = current_process().pid
     stopEvent = Event()
     stopEvent.clear()
-    print(f'* Process {pid} start @ {currentTimeStr()}.')
+
+    processID = f'{processConfig.sn}|{pid}'
+
+    print(f'* Process {processID} start @ {currentTimeStr()}.')
 
     def stopSignalHandler(*_, ):
-        print(f'Process {pid} receive stop signal @ {currentTimeStr()}.')
+        print(f'Process {processID} receive stop signal @ {currentTimeStr()}.')
         stopEvent.set()
 
     signal.signal(signal.SIGINT, stopSignalHandler)
@@ -24,14 +27,17 @@ def processFunc(processConfig: SubProcessConfig, *args, **kwargs):
     systemCheckTime = time.time()
 
     while True:
+        if time.time() - initTime > CONFIG.processLifeTime:
+            print(f'Process {processID} life end, exit for next.')
+            exit()
         # -------------------- check event status --------------------
         if processConfig.stopEvent.is_set() or stopEvent.is_set():
-            print(f'Process {pid} exit @ {currentTimeStr()}.')
+            print(f'Process {processID} exit @ {currentTimeStr()}.')
             exit()
 
         # -------------------- task manager timeout --------------------
         if time.time() - systemCheckTime > CONFIG.taskManagerTimeout:
-            print(f'Task manager timeout , process {pid} exit.')
+            print(f'Task manager timeout , process {processID} exit.')
             exit()
 
         # -------------------- send alive time --------------------
@@ -40,10 +46,10 @@ def processFunc(processConfig: SubProcessConfig, *args, **kwargs):
         # -------------------- get task config --------------------
         try:
             taskConfig = processConfig.taskManager.getTask(
-                processor=f'{processConfig.localName}|{pid}'
+                processor=f'{processConfig.localName}-{processID}'
             )._getvalue()
             if not isinstance(taskConfig, TaskConfig):
-                print(f'Task manager busy, process {pid} ----------')
+                print(f'Task manager busy, process {processID} ----------')
                 time.sleep(0.2)
                 continue
             systemCheckTime = time.time()
@@ -54,6 +60,12 @@ def processFunc(processConfig: SubProcessConfig, *args, **kwargs):
 
         # -------------------- function content --------------------
 
-        print(f'Process {pid} get task config:\n    {taskConfig}.')
+        print(
+            f'''Process {pid} get task config:
+    {taskConfig.sn},{taskConfig.combine},{taskConfig.timeLimit}  
+    {AutoTaskHandler.deserialize(taskConfig.args)}  
+    {AutoTaskHandler.deserialize(taskConfig.kwargs)}
+    '''
+        )
 
         time.sleep(5 + random.random() * 5)

@@ -3,34 +3,63 @@ import zlib
 
 import cryptocode
 
+from django.core.exceptions import AppRegistryNotReady
+from django.apps.registry import apps
+
+try:
+    apps.check_apps_ready()
+except AppRegistryNotReady:
+    import django
+
+    django.setup()
+
+from .Component import CONFIG
+
 from .models import TaskRec
 
-from .Conf import CONFIG
 
-
-class AutoTaskHandler():
+class AutoTaskHandler:
     @staticmethod
-    def serialize(data: any) -> bytes:
-        return cryptocode.encrypt(
-            zlib.compress(
-                json.dumps(data).encode('UTF-8')
-            ).hex(),
-            CONFIG.secretKey,
-        )
+    def serialize(data: any) -> str:
+        return zlib.compress(
+            json.dumps(data).encode('UTF-8')
+        ).hex()
 
     @staticmethod
-    def deserialize(hex: bytes) -> any:
+    def deserialize(rawStr: str) -> any:
         return json.loads(
             zlib.decompress(
-                bytes.fromhex(
-                    cryptocode.decrypt(hex, CONFIG.secretKey, )
-                ),
+                bytes.fromhex(rawStr),
             ),
         )
 
+    # @staticmethod
+    # def serialize(data: any) -> bytes:
+    #     print(
+    #         zlib.compress(
+    #             json.dumps(data).encode('UTF-8')
+    #         ).hex(),
+    #     )
+    #     return cryptocode.encrypt(
+    #         zlib.compress(
+    #             json.dumps(data).encode('UTF-8')
+    #         ).hex(),
+    #         CONFIG.secretKey,
+    #     )
+    #
+    # @staticmethod
+    # def deserialize(hexStr: bytes) -> any:
+    #     return json.loads(
+    #         zlib.decompress(
+    #             bytes.fromhex(
+    #                 cryptocode.decrypt(hexStr, CONFIG.secretKey, )
+    #             ),
+    #         ),
+    #     )
+
     @staticmethod
-    def getTask(*_, type, count):
-        pass
+    def getTaskQueue(*_, taskType, limit):
+        TaskRec.getTaskQueue(taskType=taskType, limit=limit)
 
     @staticmethod
     def setTaskStatus(*_, taskSn, status, ):

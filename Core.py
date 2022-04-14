@@ -15,7 +15,6 @@ except AppRegistryNotReady:
     django.setup()
 
 from .Component import *
-from .Conf import *
 from .Handler import AutoTaskHandler
 
 
@@ -27,7 +26,7 @@ class TaskManager:
         self.__taskList = []
         if not isinstance(handler, AutoTaskHandler):
             raise Exception('Invalid auto task handler.')
-        self.__hander = handler
+        self.__handler = handler
 
     def lock(self):
         self.__lock = True
@@ -45,10 +44,14 @@ class TaskManager:
         return TaskConfig(
             sn=100001,
             func='test',
-            args=('A', 'B', 'C'),
-            kwargs={
-                'taskCount': len(self.__taskList),
-            },
+            args=self.__handler.serialize(
+                ('A', 'B', 'C')
+            ),
+            kwargs=self.__handler.serialize(
+                {
+                    'taskCount': len(self.__taskList),
+                }
+            ),
         )
 
     def ping(self, *_, **kwargs):
@@ -83,6 +86,8 @@ class ExecutorGroup:
         self.__managerCon: SyncManager = managerCon
         self.__processFunc = processFunc
 
+        self.__processCounter = 0
+
         def stopSignalHandler(*_, ):
             print(f'Group {self.pid} receive stop signal @ {currentTimeStr()}.')
             self.exit()
@@ -97,7 +102,7 @@ class ExecutorGroup:
             try:
                 self.__managerCon.connect()
                 break
-            except:
+            except Exception as err_:
                 print(f'Group {self.pid} connect task manager fail, waiting.')
                 time.sleep(2)
 
@@ -109,7 +114,9 @@ class ExecutorGroup:
         if len(self.__processPool) == self.__poolSize:
             return None
         while len(self.__processPool) < self.__poolSize:
+            self.__processCounter += 1
             process = SubProcess(
+                sn=self.__processCounter,
                 stopEvent=self.__exitEvent,
                 processFunc=self.__processFunc,
                 manager=self.__managerCon,
@@ -155,12 +162,11 @@ class ExecutorGroup:
                 time.sleep(2)
                 continue
 
-            # serverCheckTime = time.time()
             self.appendProcess()
             for subProcess in self.__processPool:
                 subProcess.checkAlive()
 
-            time.sleep(5)
+            time.sleep(0.2)
         self.exit()
 
 
@@ -170,10 +176,12 @@ class SubProcess:
 
     def __init__(
             self, *_,
+            sn: int,
             manager: SyncManager,
             stopEvent,
             processFunc,
     ):
+        self.__sn = sn
         self.__taskManager = manager
         self.__stopEvent = stopEvent
         self.__processFunc = processFunc
@@ -189,6 +197,7 @@ class SubProcess:
                 target=self.__processFunc,
                 args=(
                     SubProcessConfig(
+                        sn=self.__sn,
                         stopEvent=self.__stopEvent,
                         taskManager=self.__taskManager,
                         pipe=self.__processPipe,
@@ -227,6 +236,10 @@ class SubProcess:
             return None
         return self.__process.pid
 
+    @property
+    def sn(self):
+        return self.__sn
+
 
 # -------------------- sync manager --------------------
 
@@ -239,20 +252,20 @@ class ManagerAdmin(SyncManager):
 
 
 def managerServerRegister():
-    taskManager = TaskManager()
+    taskManager = TaskManager(handler=AutoTaskHandler())
 
     syncManagerConfig = {
         'getTask': taskManager.getTask,
         'ping': taskManager.ping,
     }
 
-    for name_ in taskManager.__dir__():
-        if name_[0] == '_':
+    for prop_ in taskManager.__dir__():
+        if prop_[0] == '_':
             continue
-        func_ = getattr(taskManager, name_)
+        func_ = getattr(taskManager, prop_)
         if callable(func_):
-            ManagerServer.register(name_, func_, )
-            ManagerAdmin.register(name_, )
+            ManagerServer.register(prop_, func_, )
+            ManagerAdmin.register(prop_, )
 
 
 class ManagerClient(SyncManager):
