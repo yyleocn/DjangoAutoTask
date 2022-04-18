@@ -1,7 +1,8 @@
 import json
 import zlib
+from hashlib import md5
 
-import cryptocode
+from pyDes import des, PAD_NORMAL, ECB
 
 from django.core.exceptions import AppRegistryNotReady
 from django.apps.registry import apps
@@ -19,57 +20,62 @@ from .models import TaskRec
 
 
 class AutoTaskHandler:
-    @staticmethod
-    def serialize(data: any) -> str:
-        return zlib.compress(
-            json.dumps(data).encode('UTF-8')
-        ).hex()
+    _desKey = bytes.fromhex(md5((CONFIG.secretKey * 1024).encode('UTF-8')).hexdigest()[:16])
 
-    @staticmethod
-    def deserialize(rawStr: str) -> any:
-        return json.loads(
-            zlib.decompress(
-                bytes.fromhex(rawStr),
-            ),
+    desObj = des(_desKey, ECB, _desKey, padmode=PAD_NORMAL, pad=' ')
+
+    @classmethod
+    def serialize(cls, data: any) -> bytes:
+        return cls.desObj.encrypt(
+            zlib.compress(
+                json.dumps(data).encode('UTF-8')
+            )
         )
 
-    # @staticmethod
-    # def serialize(data: any) -> bytes:
-    #     print(
-    #         zlib.compress(
-    #             json.dumps(data).encode('UTF-8')
-    #         ).hex(),
-    #     )
-    #     return cryptocode.encrypt(
-    #         zlib.compress(
-    #             json.dumps(data).encode('UTF-8')
-    #         ).hex(),
-    #         CONFIG.secretKey,
-    #     )
-    #
-    # @staticmethod
-    # def deserialize(hexStr: bytes) -> any:
-    #     return json.loads(
-    #         zlib.decompress(
-    #             bytes.fromhex(
-    #                 cryptocode.decrypt(hexStr, CONFIG.secretKey, )
-    #             ),
-    #         ),
-    #     )
+    @classmethod
+    def deserialize(cls, rawHex: bytes) -> any:
+        return json.loads(
+            zlib.decompress(
+                cls.desObj.decrypt(rawHex),
+            ).decode('UTF-8'),
+        )
 
-    @staticmethod
-    def getTaskQueue(*_, taskType, limit):
+    @classmethod
+    def getTaskQueue(cls, *_, taskType, limit):
         TaskRec.getTaskQueue(taskType=taskType, limit=limit)
 
-    @staticmethod
-    def setTaskStatus(*_, taskSn, status, ):
-        pass
+    @classmethod
+    def setTaskStatus(cls, *_, taskSn, status: int, ):
+        taskRec = TaskRec.initTaskRec(taskSn=taskSn)
+        if taskRec is None:
+            return False
+        taskRec.setStatus(status=status)
+        return True
 
-# def setStatus(self, status):
-#     self.status = status
-#     self.statusTime = time.time()
-#     self.save()
-#
+    @classmethod
+    def taskSuccess(cls, *_, taskSn: int, result: any):
+        taskRec = TaskRec.initTaskRec(taskSn=taskSn)
+        if taskRec is None:
+            return False
+        taskRec.setSuccess(result=cls.serialize(result))
+        return True
+
+    @classmethod
+    def taskInvalidConfig(cls, *_, taskSn: int, errorText: str, ):
+        taskRec = TaskRec.initTaskRec(taskSn=taskSn)
+        if taskRec is None:
+            return False
+        taskRec.invalidConfig(errorText=errorText)
+        return True
+
+    @classmethod
+    def taskError(cls, *_, taskSn: int, errorText: str, ):
+        taskRec = TaskRec.initTaskRec(taskSn=taskSn)
+        if taskRec is None:
+            return False
+        taskRec.setError(errorText=errorText)
+        return True
+
 # def invalidConfig(self, errorText):
 #     self.errorText = str(errorText)
 #     self.setStatus(INVALID_CONFIG)
@@ -153,7 +159,3 @@ class AutoTaskHandler:
 #                 errorText='Callback run error.',
 #                 errorStatus=CALLBACK_ERROR,
 #             )
-#
-# def taskFinish(self, result):
-#     self.result = agent.serialize(result)
-#     self.setStatus(RUN_SUCCESS)
