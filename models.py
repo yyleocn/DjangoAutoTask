@@ -49,11 +49,19 @@ class TaskScheme(models.Model):
 
     # -------------------- priority --------------------
     PriorityChoice = TaskPriorityChoice
-
     priority = models.SmallIntegerField(
         choices=PriorityChoice.choices,
         default=PriorityChoice.normal,
     )  # 优先级
+
+    # -------------------- next --------------------
+
+    crontabStr = models.CharField(max_length=20, null=False, blank=False)  # crontab 配置
+    interval = models.PositiveIntegerField(null=True)  # 执行间隔
+
+    # currentTaskID = models.PositiveBigIntegerField(null=True)  # 当前任务 ID
+    currentTask = models.ForeignKey(to='TaskRec', null=True, on_delete=models.SET_NULL, related_name='taskScheme')  #
+    retainTime = models.PositiveIntegerField(null=False, default=86400 * 7)  # 任务保留时间
 
 
 class TaskPackage(models.Model):
@@ -78,8 +86,6 @@ class TaskPackage(models.Model):
         choices=TypeChoice.choices,
         default=TypeChoice.normal,
     )  # 类型
-
-    schemeRec = models.ForeignKey(to=TaskScheme, null=True, on_delete=models.SET_NULL, )
 
     schemeTime = TimeStampField(null=False)  # 计划时间
 
@@ -107,6 +113,7 @@ class TaskRec(models.Model):
     name = models.CharField(max_length=50, null=True, )  # 作业名称
     group = models.CharField(max_length=50, null=True, )  # 分组
     taskPackage = models.ForeignKey(to=TaskPackage, null=True, on_delete=models.SET_NULL)  # 作业包
+    taskScheme = models.ForeignKey(to=TaskScheme, null=True, on_delete=models.SET_NULL, )  # 作业计划
 
     # -------------------- type --------------------
     TypeChoice = TaskTypeChoice
@@ -161,7 +168,7 @@ class TaskRec(models.Model):
     execute = models.SmallIntegerField(default=0)  # 执行次数
 
     pause = models.BooleanField(default=False)  # 暂停
-    cancel = models.BinaryField(default=False)  # 取消
+    cancel = models.BooleanField(default=False)  # 取消
 
     @classmethod
     def initTaskRec(cls, taskSn: int):
@@ -185,10 +192,9 @@ class TaskRec(models.Model):
 
         queryConfig = [
             Q(
-                status__gt=cls.StatusChoice.retry, status__lt=cls.StatusChoice.success,
-            ) | (
-                    Q(status=cls.StatusChoice.retry) & Q(retry__lte=currentTime)
+                status__gte=cls.StatusChoice.retry, status__lt=cls.StatusChoice.success,
             ),
+            ~(Q(status=cls.StatusChoice.retry) & Q(retry__gt=currentTime)),
             Q(schemeTime__isnull=True) | Q(schemeTime__lte=currentTime),
             Q(pause=False),
             Q(cancel=False),
@@ -205,12 +211,14 @@ class TaskRec(models.Model):
 
         taskQuery = cls.objects.filter(
             *queryConfig,
-        ).orderBy('-priority', 'startTime', 'createTime')[:limit]
+        ).order_by('priority', 'startTime', 'createTime')[:limit]
+
+        print(str(taskQuery.query))
 
         if taskQuery.count() < 1:
             return None
 
-        return taskQuery
+        return None
 
     def setStatus(self, status: int):
         self.status = status
