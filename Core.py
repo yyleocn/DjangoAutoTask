@@ -4,6 +4,8 @@ from typing import Callable
 from multiprocessing import (Process, Pipe, parent_process, Event, current_process, )
 from multiprocessing.managers import SyncManager
 
+import random
+
 from django.core.exceptions import AppRegistryNotReady
 from django.apps.registry import apps
 
@@ -23,10 +25,12 @@ class TaskManager:
     def __init__(self, *_, handler: AutoTaskHandler, **kwargs):
         print(f'Task manager {current_process().pid} init.')
         self.__lock = False
-        self.__taskList = []
+        self.__taskQueue = []
         if not isinstance(handler, AutoTaskHandler):
             raise Exception('Invalid auto task handler.')
         self.__handler = handler
+
+        self.__taskSnCounter = 1000000
 
     def lock(self):
         self.__lock = True
@@ -35,21 +39,36 @@ class TaskManager:
         self.__lock = False
 
     def appendTask(self):
-        self.__taskList.append('Task')
+        self.__taskQueue.append('Task')
 
     def getTask(self, *args, **kwargs):
-        print(f'Manager getTask called by\n    args: {args}, kwargs: {kwargs}.')
+
+        print(f'GetTask by args: {args}, kwargs: {kwargs}.')
+
         if self.__lock:
             return None
+
+        self.__taskSnCounter += 1
+
+        if self.__taskSnCounter % 10 == 0:
+            runArgs = 'A'
+        else:
+            runArgs = self.__handler.serialize(
+                (
+                    random.randint(1, 100),
+                    random.randint(1, 100),
+                    random.randint(1, 100),
+                    random.randint(1, 100),
+                )
+            )
+
         return TaskConfig(
-            sn=100001,
-            func='test',
-            args=self.__handler.serialize(
-                ('A', 'B', 'C')
-            ),
+            sn=self.__taskSnCounter,
+            func='AutoTask.Test.autoTaskTest.test',
+            args=runArgs,
             kwargs=self.__handler.serialize(
                 {
-                    'taskCount': len(self.__taskList),
+                    'taskCount': len(self.__taskQueue),
                 }
             ),
         )
@@ -65,6 +84,13 @@ class TaskManager:
 
     def taskError(self, *_, errorCode: int = 0, **kwargs):
         return True
+
+    def configError(self, *_, taskSn):
+        print(f'    Task {taskSn} config error.')
+        return True
+
+    def taskSuccess(self, *_, taskSn, result):
+        print(f'    Task {taskSn} success, result is {result}.')
 
 
 # -------------------- process group --------------------
@@ -152,19 +178,25 @@ class ExecutorGroup:
 
     def run(self):
         # serverCheckTime = time.time()
+        runCounter = 0
         while True:
+            runCounter += 1
             if self.__exitEvent.is_set():
                 break
-            try:
-                pingRes = self.__managerCon.ping()._getvalue()
-            except Exception as err_:
-                print(f'Group {self.pid} connect task manager fail: {err_}')
-                time.sleep(2)
-                continue
 
-            self.appendProcess()
-            for subProcess in self.__processPool:
-                subProcess.checkAlive()
+            if runCounter % 10 == 0:
+                try:
+                    pingRes = self.__managerCon.ping()._getvalue()
+                except Exception as err_:
+                    runCounter = 0
+                    print(f'Group {self.pid} connect task manager fail: {err_}')
+                    time.sleep(2)
+                    continue
+
+            if runCounter > 0:
+                self.appendProcess()
+                for subProcess in self.__processPool:
+                    subProcess.checkAlive()
 
             time.sleep(0.2)
         self.exit()
@@ -254,10 +286,11 @@ class ManagerAdmin(SyncManager):
 def managerServerRegister():
     taskManager = TaskManager(handler=AutoTaskHandler())
 
-    syncManagerConfig = {
-        'getTask': taskManager.getTask,
-        'ping': taskManager.ping,
-    }
+    # syncManagerConfig = {
+    #     'getTask': taskManager.getTask,
+    #     'ping': taskManager.ping,
+    #     'configError': taskManager.configError,
+    # }
 
     for prop_ in taskManager.__dir__():
         if prop_[0] == '_':
@@ -272,7 +305,7 @@ class ManagerClient(SyncManager):
     pass
 
 
-managerClientFunc = ('getTask', 'ping',)
+managerClientFunc = ('getTask', 'ping', 'configError', 'taskSuccess',)
 
 for name_ in managerClientFunc:
     ManagerClient.register(name_)

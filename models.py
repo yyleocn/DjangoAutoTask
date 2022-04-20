@@ -1,6 +1,6 @@
 from time import time as getCurrentTime
 from django.db import models
-from django.db.models import Q, F
+from django.db.models import Q
 
 
 class UserField(models.CharField):
@@ -33,7 +33,8 @@ class TaskStatusChoice(models.IntegerChoices):
     invalid_config = -999
     callback_error = -200
     fail = -100
-    retry = -50
+    error = -50
+    timeout = -30
     normal = 1
     running = 10
     success = 100
@@ -60,7 +61,7 @@ class TaskScheme(models.Model):
     interval = models.PositiveIntegerField(null=True)  # 执行间隔
 
     # currentTaskID = models.PositiveBigIntegerField(null=True)  # 当前任务 ID
-    currentTask = models.ForeignKey(to='TaskRec', null=True, on_delete=models.SET_NULL, related_name='taskScheme')  #
+    currentTask = models.OneToOneField(to='TaskRec', null=True, on_delete=models.SET_NULL, related_name='taskScheme')  #
     retainTime = models.PositiveIntegerField(null=False, default=86400 * 7)  # 任务保留时间
 
 
@@ -87,7 +88,7 @@ class TaskPackage(models.Model):
         default=TypeChoice.normal,
     )  # 类型
 
-    schemeTime = TimeStampField(null=False)  # 计划时间
+    planTime = TimeStampField(null=False)  # 计划时间
 
     count = models.IntegerField(default=0, )
     success = models.IntegerField(default=0, )
@@ -112,8 +113,8 @@ class TaskRec(models.Model):
     # --------------------  --------------------
     name = models.CharField(max_length=50, null=True, )  # 作业名称
     group = models.CharField(max_length=50, null=True, )  # 分组
-    taskPackage = models.ForeignKey(to=TaskPackage, null=True, on_delete=models.SET_NULL)  # 作业包
-    taskScheme = models.ForeignKey(to=TaskScheme, null=True, on_delete=models.SET_NULL, )  # 作业计划
+    package = models.ForeignKey(to=TaskPackage, null=True, on_delete=models.SET_NULL, related_name='taskRec')  # 作业包
+    scheme = models.ForeignKey(to=TaskScheme, null=True, on_delete=models.SET_NULL, related_name='taskRec')  # 作业计划
 
     # -------------------- type --------------------
     TypeChoice = TaskTypeChoice
@@ -135,10 +136,10 @@ class TaskRec(models.Model):
     # -------------------- task config --------------------
     func = models.CharField(
         null=False, blank=False,
-        max_length=30,
+        max_length=50,
     )  # func location string
-    args = models.BinaryField()  # args
-    kwargs = models.BinaryField()  # kwargs
+    args = models.TextField(null=True, blank=False, )  # args
+    kwargs = models.TextField(null=True, blank=False, )  # kwargs
     combine = models.BigIntegerField(null=True)  # combine key
 
     result = models.BinaryField(null=True, )  # return value
@@ -154,7 +155,7 @@ class TaskRec(models.Model):
     errorText = models.CharField(max_length=100, null=True, blank=False, default=None)  # 错误信息
 
     # -------------------- time stamp --------------------
-    schemeTime = TimeStampField(null=False)  # 计划时间
+    planTime = TimeStampField(null=False)  # 计划时间
     retryTime = TimeStampField(null=True)  # 重试时间
 
     startTime = TimeStampField(null=True)  # 开始时间
@@ -184,18 +185,22 @@ class TaskRec(models.Model):
     @classmethod
     def getTaskQueue(
             cls, *_,
-            limit: int = 100,
+            limit: int = None,
             status: int = None, priority: int = None, taskType: int = None,
             **kwargs
     ):
         currentTime = getCurrentTime()
 
+        queryLimit = 100
+        if isinstance(limit, int):
+            queryLimit = limit
+
         queryConfig = [
             Q(
-                status__gte=cls.StatusChoice.retry, status__lt=cls.StatusChoice.success,
+                status__gte=cls.StatusChoice.error, status__lt=cls.StatusChoice.success,
             ),
-            ~(Q(status=cls.StatusChoice.retry) & Q(retry__gt=currentTime)),
-            Q(schemeTime__isnull=True) | Q(schemeTime__lte=currentTime),
+            ~(Q(status=cls.StatusChoice.error) & Q(retry__gt=currentTime)),
+            Q(planTime__isnull=True) | Q(planTime__lte=currentTime),
             Q(pause=False),
             Q(cancel=False),
         ]
@@ -213,40 +218,61 @@ class TaskRec(models.Model):
             *queryConfig,
         ).order_by('priority', 'startTime', 'createTime')[:limit]
 
-        print(str(taskQuery.query))
+        try:
 
-        if taskQuery.count() < 1:
-            return None
+            if taskQuery.count() < 1:
+                return None
+        except BaseException as err_:
+            return err_
 
-        return None
+        return taskQuery
 
     def setStatus(self, status: int):
         self.status = status
         self.statusTime = getCurrentTime()
         self.save()
 
-    def setRunning(self):
-        self.execute += 1
-        self.startTime = getCurrentTime()
-        self.setStatus(self.StatusChoice.running)
+    def invalidConfig(self, errorText: str):
+        if self.status == self.StatusChoice.running:
+            return False
+        self.errorText = errorText[:100]
+        self.setStatus(self.StatusChoice.invalid_config)
+        return True
 
     def setError(self, errorText: str):
+        if not self.status == self.StatusChoice.running:
+            return False
         self.errorText = errorText[:100]
         if self.execute > self.retry:
             self.setStatus(self.StatusChoice.fail)
             return
         self.retryTime = getCurrentTime() + self.delay
-        self.setStatus(self.StatusChoice.retry)
+        self.setStatus(self.StatusChoice.error)
+        return True
+
+    def setRunning(self):
+        if self.status >= self.StatusChoice.success:
+            return False
+        self.execute += 1
+        self.startTime = getCurrentTime()
+        self.setStatus(self.StatusChoice.running)
+        return True
 
     def setSuccess(self, result: bytes = None):
+        if not self.status == self.StatusChoice.running:
+            return False
         if isinstance(result, bytes):
             self.result = result
         self.endTime = getCurrentTime()
         self.setStatus(self.StatusChoice.success)
+        return True
 
-    def invalidConfig(self, errorText: str):
-        self.errorText = errorText[:100]
-        self.setStatus(self.StatusChoice.invalid_config)
+    def setTimeout(self, ):
+        if not self.status == self.StatusChoice.running:
+            return False
+        self.errorText = 'Task run time out.'
+        self.setStatus(self.StatusChoice.timeout)
+        return True
 
 
 TaskRec.objects.filter(

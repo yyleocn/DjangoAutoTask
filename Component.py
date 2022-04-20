@@ -170,12 +170,17 @@ def currentTimeStr():
 class TaskConfig:
     sn: int
     func: str
-    args: str
-    kwargs: str
-    combine: [int, None] = None
+    args: str | None = None
+    kwargs: str | None = None
+    combine: int | None = None
 
     timeLimit: int = CONFIG.taskTimeLimit
-    callback: [str, None, ] = None
+    callback: str | None = None
+
+
+class TaskException(BaseException):
+    def __init__(self, *_, code: int, reason: str, ):
+        pass
 
 
 __all__ = (

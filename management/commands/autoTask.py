@@ -22,7 +22,7 @@ def managerServerInit():
 
     def serverExit(*args):
         print(f'Task manager close @ {currentTimeStr()}')
-        time.sleep(1)
+        time.sleep(2)
         exit()
 
     signal.signal(signal.SIGINT, serverExit)
@@ -68,9 +68,9 @@ class Command(BaseCommand):
         while True:
             print(f'Task manager is running @ {currentTimeStr()}')
             managerAdmin.appendTask()._getvalue()
-            time.sleep(2)
+            time.sleep(5)
             managerAdmin.lock()._getvalue()
-            time.sleep(0.2)
+            time.sleep(0.5)
             managerAdmin.unlock()._getvalue()
 
     @no_translations

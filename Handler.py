@@ -1,5 +1,7 @@
 import json
 import zlib
+
+from typing import Callable
 from hashlib import md5
 
 from pyDes import des, PAD_NORMAL, ECB
@@ -14,7 +16,7 @@ except AppRegistryNotReady:
 
     django.setup()
 
-from .Component import CONFIG
+from .Component import CONFIG, TaskConfig, importFunction
 
 from .models import TaskRec
 
@@ -25,24 +27,16 @@ class AutoTaskHandler:
     desObj = des(_desKey, ECB, _desKey, padmode=PAD_NORMAL, pad=' ')
 
     @classmethod
-    def serialize(cls, data: any) -> bytes:
-        return cls.desObj.encrypt(
-            zlib.compress(
-                json.dumps(data).encode('UTF-8')
-            )
-        )
+    def serialize(cls, data: any) -> str:
+        return json.dumps(data)
 
     @classmethod
-    def deserialize(cls, rawHex: bytes) -> any:
-        return json.loads(
-            zlib.decompress(
-                cls.desObj.decrypt(rawHex),
-            ).decode('UTF-8'),
-        )
+    def deserialize(cls, data: str) -> dict | list:
+        return json.loads(data)
 
     @classmethod
-    def getTaskQueue(cls, *_, taskType, limit):
-        TaskRec.getTaskQueue(taskType=taskType, limit=limit)
+    def getTaskQueue(cls, *_, taskType: int | None = None, limit: int | None = None):
+        return TaskRec.getTaskQueue(taskType=taskType, limit=limit)
 
     @classmethod
     def setTaskStatus(cls, *_, taskSn, status: int, ):
@@ -57,105 +51,57 @@ class AutoTaskHandler:
         taskRec = TaskRec.initTaskRec(taskSn=taskSn)
         if taskRec is None:
             return False
-        taskRec.setSuccess(result=cls.serialize(result))
-        return True
+        return taskRec.setSuccess(result=cls.serialize(result))
 
     @classmethod
     def taskInvalidConfig(cls, *_, taskSn: int, errorText: str, ):
         taskRec = TaskRec.initTaskRec(taskSn=taskSn)
         if taskRec is None:
             return False
-        taskRec.invalidConfig(errorText=errorText)
-        return True
+        return taskRec.invalidConfig(errorText=errorText)
 
     @classmethod
     def taskError(cls, *_, taskSn: int, errorText: str, ):
         taskRec = TaskRec.initTaskRec(taskSn=taskSn)
         if taskRec is None:
             return False
-        taskRec.setError(errorText=errorText)
-        return True
+        return taskRec.setError(errorText=errorText)
 
-# def invalidConfig(self, errorText):
-#     self.errorText = str(errorText)
-#     self.setStatus(INVALID_CONFIG)
-#
-# def taskFail(self):
-#     self.setStatus(-1)
-#
-# def runFail(self, errorText):
-#     self.errorText = str(errorText)
-#     if self.execute > self.retry:
-#         self.taskFail()
-#         return
-#     self.setStatus(RUN_FAIL)
-#
-# def running(self):
-#     self.execute += 1
-#     self.startTime = time.time()
-#     self.setStatus(RUNNING)
-#
-# def taskError(self, *_, errorText, errorStatus, ):
-#     self.errorText = errorText
-#     self.setStatus(errorStatus)
-#
-# def setResult(self, result_):
-#     self.result = agent.serialize(result_)
-#     self.setStatus(RUN_SUCCESS)
-#
-# def taskRun(self):
-#     if self.status < 0:
-#         return None
-#
-#     if self.execute > self.retry:
-#         self.taskFail()
-#         return None
-#
-#     try:
-#         func: Callable = importFunction(self.func)
-#         if not callable(func):
-#             self.taskError(
-#                 errorText='Task function',
-#                 errorStatus=INVALID_CONFIG,
-#             )
-#     except BaseException:
-#         self.invalidConfig('Invalid function')
-#         return None
-#
-#     try:
-#         args = agent.deserialize(self.args)
-#     except BaseException:
-#         self.invalidConfig('Invalid args')
-#         return None
-#
-#     try:
-#         kwargs = agent.deserialize(self.kwargs)
-#     except BaseException:
-#         self.invalidConfig('Invalid kwargs')
-#         return None
-#
-#     self.running()
-#     result = func(*args, **kwargs)
-#
-#     try:
-#         self.setResult(result)
-#     except BaseException:
-#         self.taskError(
-#             errorText='',
-#             errorStatus=CALLBACK_ERROR,
-#         )
-#
-#     if self.callback:
-#         try:
-#             callback: Callable = importFunction(self.callback)
-#             if not callable(callback):
-#                 self.taskError(
-#                     errorText='Callback is not a function.',
-#                     errorStatus=CALLBACK_ERROR,
-#                 )
-#
-#         except:
-#             self.taskError(
-#                 errorText='Callback run error.',
-#                 errorStatus=CALLBACK_ERROR,
-#             )
+    @classmethod
+    def taskTimeout(cls, *_, taskSn: int, errorText: str, ):
+        taskRec = TaskRec.initTaskRec(taskSn=taskSn)
+        if taskRec is None:
+            return False
+        return taskRec.setTimeout(errorText=errorText)
+
+    @classmethod
+    def configUnpack(cls, config: TaskConfig):
+        runConfig = {
+            'func': '',
+            'args': [],
+            'kwargs': {},
+        }
+        try:
+            runConfig['func']: Callable = importFunction(config.func)
+        except:
+            raise Exception('Invalid task function.')
+        if not callable(runConfig['func']):
+            raise Exception('Invalid task function.')
+
+        try:
+            if config.args:
+                runConfig['args']: list = cls.deserialize(config.args)
+        except:
+            raise Exception('Invalid task args.')
+        if not isinstance(runConfig['args'], list):
+            raise Exception('Invalid task args.')
+
+        try:
+            if config.kwargs:
+                runConfig['kwargs']: dict = cls.deserialize(config.kwargs)
+        except:
+            raise Exception('Invalid task kwargs.')
+        if not isinstance(runConfig['kwargs'], dict):
+            raise Exception('Invalid task kwargs.')
+
+        return runConfig

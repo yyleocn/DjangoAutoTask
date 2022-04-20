@@ -58,14 +58,22 @@ def processFunc(processConfig: SubProcessConfig, *args, **kwargs):
             time.sleep(2)
             continue
 
-        # -------------------- function content --------------------
+        try:
+            runConfig = AutoTaskHandler.configUnpack(taskConfig)
+        except:
+            runConfig = None
+            processConfig.taskManager.configError(taskSn=taskConfig.sn)
 
-        print(
-            f'''Process {pid} get task config:
-    {taskConfig.sn},{taskConfig.combine},{taskConfig.timeLimit}  
-    {AutoTaskHandler.deserialize(taskConfig.args)}  
-    {AutoTaskHandler.deserialize(taskConfig.kwargs)}
-    '''
-        )
+        # -------------------- function content --------------------
+        if runConfig:
+            print(f'''Process {pid} get task {taskConfig.sn}:
+    {taskConfig}''')
+            taskFunc = runConfig['func']
+            taskArgs = runConfig['args']
+            taskKwargs = runConfig['kwargs']
+
+            result = taskFunc(*taskArgs, **taskKwargs)
+
+            processConfig.taskManager.taskSuccess(taskSn=taskConfig.sn, result=result)
 
         time.sleep(5 + random.random() * 5)
