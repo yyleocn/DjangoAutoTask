@@ -1,5 +1,4 @@
 import json
-import zlib
 
 from typing import Callable
 from hashlib import md5
@@ -18,11 +17,11 @@ except AppRegistryNotReady:
 
 from .Component import CONFIG, TaskConfig, importFunction
 
-from .models import TaskRec
+from .models import TaskRec, TaskRecQueueFields
 
 
 class AutoTaskHandler:
-    _desKey = bytes.fromhex(md5((CONFIG.secretKey * 1024).encode('UTF-8')).hexdigest()[:16])
+    _desKey = bytes.fromhex(md5((CONFIG.dbSecretKey * 1024).encode('UTF-8')).hexdigest()[:16])
 
     desObj = des(_desKey, ECB, _desKey, padmode=PAD_NORMAL, pad=' ')
 
@@ -35,8 +34,24 @@ class AutoTaskHandler:
         return json.loads(data)
 
     @classmethod
-    def getTaskQueue(cls, *_, taskType: int | None = None, limit: int | None = None):
-        return TaskRec.getTaskQueue(taskType=taskType, limit=limit)
+    def getTaskQueue(cls, *_, taskType: int | None = None, limit: int | None = None) -> list:
+        queryRes = TaskRec.getTaskQueue(taskType=taskType, limit=limit).values(*TaskRecQueueFields)
+        return [
+            {
+                'getBy': None,
+                'taskSn': taskRec['taskSn'],
+                'combine': taskRec['combine'],
+                'taskConfig': TaskConfig(
+                    sn=taskRec['taskSn'],
+                    func=taskRec['func'],
+                    args=taskRec['args'],
+                    kwargs=taskRec['kwargs'],
+                    timeout=taskRec['timeout'],
+                    callback=taskRec['callback'],
+                ),
+            }
+            for taskRec in queryRes
+        ]
 
     @classmethod
     def setTaskStatus(cls, *_, taskSn, status: int, ):

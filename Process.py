@@ -10,8 +10,8 @@ from .Handler import AutoTaskHandler
 def processFunc(processConfig: SubProcessConfig, *args, **kwargs):
     initTime = time.time()
     pid = current_process().pid
-    stopEvent = Event()
-    stopEvent.clear()
+    processStopEvent = Event()
+    processStopEvent.clear()
 
     processID = f'{processConfig.sn}|{pid}'
 
@@ -19,31 +19,37 @@ def processFunc(processConfig: SubProcessConfig, *args, **kwargs):
 
     def stopSignalHandler(*_, ):
         print(f'Process {processID} receive stop signal @ {currentTimeStr()}.')
-        stopEvent.set()
+        processStopEvent.set()
 
     signal.signal(signal.SIGINT, stopSignalHandler)
     signal.signal(signal.SIGTERM, stopSignalHandler)
 
-    systemCheckTime = time.time()
+    managerCheckTime = time.time()
+
+    def pipePing(processTimeout):
+        processConfig.pipe.send((
+            int(time.time()), processTimeout,
+        ))
 
     while True:
-        if time.time() - initTime > CONFIG.processLifeTime:
+        currentTime = time.time()
+        if currentTime - initTime > CONFIG.processLifeTime:
             print(f'Process {processID} life end, exit for next.')
             exit()
         # -------------------- check event status --------------------
-        if processConfig.stopEvent.is_set() or stopEvent.is_set():
+        if processConfig.stopEvent.is_set() or processStopEvent.is_set():
             print(f'Process {processID} exit @ {currentTimeStr()}.')
             exit()
 
         # -------------------- task manager timeout --------------------
-        if time.time() - systemCheckTime > CONFIG.taskManagerTimeout:
+        if currentTime - managerCheckTime > CONFIG.managerTimeout:
             print(f'Task manager timeout , process {processID} exit.')
             exit()
 
         # -------------------- send alive time --------------------
-        processConfig.pipe.send(time.time())
 
         # -------------------- get task config --------------------
+        timeout = None
         try:
             taskConfig = processConfig.taskManager.getTask(
                 processor=f'{processConfig.localName}-{processID}'
@@ -52,11 +58,15 @@ def processFunc(processConfig: SubProcessConfig, *args, **kwargs):
                 print(f'Task manager busy, process {processID} ----------')
                 time.sleep(0.2)
                 continue
-            systemCheckTime = time.time()
+            timeout = taskConfig.sn
+            managerCheckTime = currentTime
         except BaseException as err_:
             print(err_)
+            pipePing(None)
             time.sleep(2)
             continue
+
+        pipePing(taskConfig.timeout)
 
         try:
             runConfig = AutoTaskHandler.configUnpack(taskConfig)

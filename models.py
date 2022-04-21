@@ -60,9 +60,10 @@ class TaskScheme(models.Model):
     crontabStr = models.CharField(max_length=20, null=False, blank=False)  # crontab 配置
     interval = models.PositiveIntegerField(null=True)  # 执行间隔
 
-    # currentTaskID = models.PositiveBigIntegerField(null=True)  # 当前任务 ID
-    currentTask = models.OneToOneField(to='TaskRec', null=True, on_delete=models.SET_NULL, related_name='taskScheme')  #
-    retainTime = models.PositiveIntegerField(null=False, default=86400 * 7)  # 任务保留时间
+    currentTaskID = models.PositiveBigIntegerField(null=True)  # 当前任务 ID
+    nextTime = TimeStampField(null=False, default=0)  # 下个任务时间
+
+    retainTimeLimit = models.PositiveIntegerField(null=False, default=86400 * 7)  # 任务保留时间
 
 
 class TaskPackage(models.Model):
@@ -90,14 +91,15 @@ class TaskPackage(models.Model):
 
     planTime = TimeStampField(null=False)  # 计划时间
 
-    count = models.IntegerField(default=0, )
-    success = models.IntegerField(default=0, )
-    fail = models.IntegerField(default=0, )
-    remain = models.IntegerField(default=0, )
+    count = models.PositiveIntegerField(default=0, )  # 总数
+    success = models.PositiveIntegerField(default=0, )  # 成功
+    fail = models.PositiveIntegerField(default=0, )  # 失败
+    running = models.PositiveIntegerField(default=0, )  # running
+
     finished = models.BooleanField(default=False, )
 
 
-TaskConfigValue = (
+TaskRecQueueFields = (
     'taskSn', 'type', 'priority',
     'func', 'args', 'kwargs', 'combine', 'callback',
 )

@@ -24,28 +24,34 @@ from .Handler import AutoTaskHandler
 class TaskManager:
     def __init__(self, *_, handler: AutoTaskHandler, **kwargs):
         print(f'Task manager {current_process().pid} init.')
-        self.__lock = False
-        self.__taskQueue = []
+        self.__taskQueueLock = False
+        self.__taskQueue: list = []
+        self.__taskRecDict: dict = {}
+        self.__taskSnSet: set = set()
         if not isinstance(handler, AutoTaskHandler):
             raise Exception('Invalid auto task handler.')
         self.__handler = handler
 
         self.__taskSnCounter = 1000000
 
-    def lock(self):
-        self.__lock = True
+    # def lock(self):
+    #     self.__lock = True
+    #
+    # def unlock(self):
+    #     self.__lock = False
 
-    def unlock(self):
-        self.__lock = False
+    def refreshTaskQueue(self):
+        self.__taskQueueLock = True
 
-    def appendTask(self):
-        self.__taskQueue.append('Task')
+        appendTask = self.__handler.getTaskQueue()
 
-    def getTask(self, *args, **kwargs):
+        self.__taskQueueLock = False
 
-        print(f'GetTask by args: {args}, kwargs: {kwargs}.')
+    def getTask(self, *args, processor: str = None, **kwargs):
 
-        if self.__lock:
+        print(f'Processor {processor} get task.')
+
+        if self.__taskQueueLock:
             return None
 
         self.__taskSnCounter += 1
@@ -155,7 +161,7 @@ class ExecutorGroup:
         return current_process().pid
 
     @property
-    def subPid(self):
+    def processPid(self):
         return [
             process.pid for process in self.__processPool
         ]
@@ -184,19 +190,18 @@ class ExecutorGroup:
             if self.__exitEvent.is_set():
                 break
 
-            if runCounter % 10 == 0:
+            if runCounter > 9:
                 try:
                     pingRes = self.__managerCon.ping()._getvalue()
-                except Exception as err_:
                     runCounter = 0
+                except Exception as err_:
                     print(f'Group {self.pid} connect task manager fail: {err_}')
                     time.sleep(2)
                     continue
 
-            if runCounter > 0:
-                self.appendProcess()
-                for subProcess in self.__processPool:
-                    subProcess.checkAlive()
+            self.appendProcess()
+            for subProcess in self.__processPool:
+                subProcess.checkAlive()
 
             time.sleep(0.2)
         self.exit()
@@ -225,6 +230,8 @@ class SubProcess:
 
     def createProcess(self):
         if not parent_process():
+            while self.__pipe.poll():
+                _ = self.__pipe.recv()
             self.__process = Process(
                 target=self.__processFunc,
                 args=(
@@ -239,6 +246,7 @@ class SubProcess:
             )
             self.__process.start()
             self.__processAliveTime = time.time()
+            self.__processTimeout = CONFIG.processTimeout
         else:
             print('This is a sub process.')
 
@@ -249,16 +257,19 @@ class SubProcess:
 
     def checkAlive(self):
         if self.__process is None:
-            return None
-
-        while self.__pipe.poll():
-            self.__processAliveTime = self.__pipe.recv()
-
-        if time.time() - self.__processAliveTime > CONFIG.taskTimeLimit:
-            self.__process.terminate()
+            self.createProcess()
 
         if not self.__process.is_alive():
             self.createProcess()
+
+        while self.__pipe.poll():
+            recvData: tuple = self.__pipe.recv()
+            self.__processAliveTime = recvData[0]
+            self.__processTimeout = recvData[1] or CONFIG.processTimeout
+
+        if time.time() - self.__processAliveTime > self.__processTimeout:
+            self.__process.terminate()
+            time.sleep(0.1)
 
     @property
     def pid(self):

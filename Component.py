@@ -1,11 +1,7 @@
-import builtins
-import sys
 import time
 
 from pydoc import safeimport
-from types import BuiltinFunctionType
 from dataclasses import dataclass
-from inspect import isfunction, ismethod
 from typing import Callable
 
 from multiprocessing import Event
@@ -25,17 +21,19 @@ if hasattr(settings, 'AUTO_TASK'):
 
 @dataclass(frozen=True)
 class AutoTaskConfig:
+    # manager
+    authKey: bytes
     host: str = 'localhost'
-    port: int = 8898
-    authKey: bytes = b'AuthKey'
+    port: int = 8800
+    queueSize: int = 100
+    managerTimeout: int = 60
+    dbSecretKey: str = 'SecretKey'
 
+    # group
+    name: str = 'AutoTask'
     poolSize: int = 2
     processLifeTime: int = 600
-
-    taskTimeLimit: int = 30
-    taskManagerTimeout: int = 60
-    name: str = 'AutoTask'
-    secretKey: str = 'SecretKey'
+    processTimeout: int = 30
 
 
 CONFIG = AutoTaskConfig(**config)
@@ -136,9 +134,8 @@ class TaskConfig:
     func: str
     args: str | None = None
     kwargs: str | None = None
-    combine: int | None = None
 
-    timeLimit: int = CONFIG.taskTimeLimit
+    timeout: int = CONFIG.processTimeout
     callback: str | None = None
 
 
