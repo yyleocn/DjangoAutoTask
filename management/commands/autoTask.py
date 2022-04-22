@@ -4,58 +4,56 @@ import time
 from django.core.management.base import BaseCommand, no_translations
 
 from ...Component import currentTimeStr, CONFIG
-from ...Core import ExecutorGroup, ManagerClient, managerServerRegister, ManagerServer, ManagerAdmin
-from ...Process import processFunc
-
-
-def managerServerInit():
-    managerServerRegister()
-    managerServer = ManagerServer(
-        address=('', CONFIG.port),
-        authkey=CONFIG.authKey,
-    )
-
-    managerAdmin = ManagerAdmin(
-        address=('localhost', CONFIG.port),
-        authkey=CONFIG.authKey,
-    )
-
-    def serverExit(*args):
-        print(f'Task manager close @ {currentTimeStr()}')
-        time.sleep(2)
-        exit()
-
-    signal.signal(signal.SIGINT, serverExit)
-    signal.signal(signal.SIGTERM, serverExit)
-
-    return managerServer, managerAdmin
-
-
-def processGroupInit():
-    taskManagerClient = ManagerClient(
-        address=(CONFIG.host, CONFIG.port),
-        authkey=CONFIG.authKey,
-    )
-    processGroup = ExecutorGroup(
-        managerCon=taskManagerClient,
-        processFunc=processFunc,
-    )
-    return processGroup
+from ...Core import (ManagerServer, ManagerAdmin, ManagerClient, WorkerCluster, )
+from ...Worker import workerFunc
 
 
 class Command(BaseCommand):
-    help = "Start AutoTask process group."
+    help = "Start AutoTask manager & cluster."
+
+    def managerServerInit(self):
+        managerServer = ManagerServer(
+            address=('', CONFIG.port),
+            authkey=CONFIG.authKey,
+        )
+
+        managerAdmin = ManagerAdmin(
+            address=('localhost', CONFIG.port),
+            authkey=CONFIG.authKey,
+        )
+
+        def serverExit(*args):
+            print(f'Task manager close @ {currentTimeStr()}')
+            time.sleep(2)
+            exit()
+
+        signal.signal(signal.SIGINT, serverExit)
+        signal.signal(signal.SIGTERM, serverExit)
+
+        return managerServer, managerAdmin
+
+    def workerClusterInit(self):
+        managerClient = ManagerClient(
+            address=(CONFIG.host, CONFIG.port),
+            authkey=CONFIG.authKey,
+        )
+
+        workerCluster = WorkerCluster(
+            managerCon=managerClient,
+            processFunc=workerFunc,
+        )
+        return workerCluster
 
     @no_translations
     def add_arguments(self, parser):
         parser.add_argument(
             'mode',
-            help='Start mode, manager / group.',
+            help='Start mode, manager / cluster.',
         )
 
     @no_translations
     def runManager(self):
-        managerServer, managerAdmin = managerServerInit()
+        managerServer, managerAdmin = self.managerServerInit()
         # taskManagerServer = managerServer.get_server()
 
         managerServer.start()
@@ -67,23 +65,23 @@ class Command(BaseCommand):
 
         while True:
             print(f'Task manager is running @ {currentTimeStr()}')
-            managerAdmin.appendTask()._getvalue()
+            # managerAdmin.appendTask()._getvalue()
             time.sleep(5)
             managerAdmin.lock()._getvalue()
             time.sleep(0.5)
             managerAdmin.unlock()._getvalue()
 
     @no_translations
-    def runGroup(self):
-        processGroup = processGroupInit()
+    def runCluster(self):
+        workerCluster = self.workerClusterInit()
         try:
-            processGroup.run()
+            workerCluster.run()
         except KeyboardInterrupt as intP_:
-            processGroup.exit()
+            workerCluster.exit()
 
     @no_translations
     def handle(self, *args, **options):
         if options.get('mode') == 'manager':
             self.runManager()
-        if options.get('mode') == 'group':
-            self.runGroup()
+        if options.get('mode') == 'cluster':
+            self.runCluster()

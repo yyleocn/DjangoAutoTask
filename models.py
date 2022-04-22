@@ -101,7 +101,7 @@ class TaskPackage(models.Model):
 
 TaskRecQueueFields = (
     'taskSn', 'type', 'priority',
-    'func', 'args', 'kwargs', 'combine', 'callback',
+    'func', 'args', 'kwargs', 'combine', 'callback', 'timeout', 'priority',
 )
 
 
@@ -157,14 +157,14 @@ class TaskRec(models.Model):
     errorText = models.CharField(max_length=100, null=True, blank=False, default=None)  # 错误信息
 
     # -------------------- time stamp --------------------
-    planTime = TimeStampField(null=False)  # 计划时间
+    planTime = TimeStampField(null=True)  # 计划时间
     retryTime = TimeStampField(null=True)  # 重试时间
 
     startTime = TimeStampField(null=True)  # 开始时间
     endTime = TimeStampField(null=True)  # 结束时间
 
-    timeLimit = models.SmallIntegerField(null=True)  # 运行时限
-    delay = models.SmallIntegerField(default=10, null=False, )  # 间隔
+    timeout = models.SmallIntegerField(null=True)  # 运行时限
+    delay = models.SmallIntegerField(default=10, null=False, )  # 延迟
 
     executorName = models.CharField(null=True, max_length=50, )  # process name
     retry = models.SmallIntegerField(default=0)  # 重试
@@ -193,7 +193,7 @@ class TaskRec(models.Model):
     ):
         currentTime = getCurrentTime()
 
-        queryLimit = 100
+        queryLimit = 1000
         if isinstance(limit, int):
             queryLimit = limit
 
@@ -218,7 +218,7 @@ class TaskRec(models.Model):
 
         taskQuery = cls.objects.filter(
             *queryConfig,
-        ).order_by('priority', 'startTime', 'createTime')[:limit]
+        ).order_by('priority', 'startTime', 'createTime')[:queryLimit]
 
         try:
 

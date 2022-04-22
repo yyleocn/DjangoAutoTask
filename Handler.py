@@ -35,23 +35,7 @@ class AutoTaskHandler:
 
     @classmethod
     def getTaskQueue(cls, *_, taskType: int | None = None, limit: int | None = None) -> list:
-        queryRes = TaskRec.getTaskQueue(taskType=taskType, limit=limit).values(*TaskRecQueueFields)
-        return [
-            {
-                'getBy': None,
-                'taskSn': taskRec['taskSn'],
-                'combine': taskRec['combine'],
-                'taskConfig': TaskConfig(
-                    sn=taskRec['taskSn'],
-                    func=taskRec['func'],
-                    args=taskRec['args'],
-                    kwargs=taskRec['kwargs'],
-                    timeout=taskRec['timeout'],
-                    callback=taskRec['callback'],
-                ),
-            }
-            for taskRec in queryRes
-        ]
+        return TaskRec.getTaskQueue(taskType=taskType, limit=limit).values(*TaskRecQueueFields)
 
     @classmethod
     def setTaskStatus(cls, *_, taskSn, status: int, ):

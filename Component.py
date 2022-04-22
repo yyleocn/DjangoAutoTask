@@ -6,39 +6,12 @@ from typing import Callable
 
 from multiprocessing import Event
 from multiprocessing.connection import Connection
-from multiprocessing.managers import SyncManager
+from multiprocessing.managers import BaseManager
 
 from django.conf import settings
 
-config = {
-}
 
-if hasattr(settings, 'AUTO_TASK'):
-    config.update(
-        settings.AUTO_TASK
-    )
-
-
-@dataclass(frozen=True)
-class AutoTaskConfig:
-    # manager
-    authKey: bytes
-    host: str = 'localhost'
-    port: int = 8800
-    queueSize: int = 100
-    managerTimeout: int = 60
-    dbSecretKey: str = 'SecretKey'
-
-    # group
-    name: str = 'AutoTask'
-    poolSize: int = 2
-    processLifeTime: int = 600
-    processTimeout: int = 30
-
-
-CONFIG = AutoTaskConfig(**config)
-
-
+# -------------------- import component by string --------------------
 class ErrorDuringImport(Exception):
     """Errors that occurred while trying to import something to document it."""
 
@@ -61,7 +34,8 @@ def importComponent(path: str, *_, forceLoad: bool = False, cache: dict | None =
     if path in cache and not forceLoad:
         return cache[path]
 
-    pathParts = [part for part in path.split('.') if part]
+    # pathParts = [part for part in path.split('.') if part]
+    pathParts = path.split('.')
     n = len(pathParts)
     importModule = None
 
@@ -74,7 +48,6 @@ def importComponent(path: str, *_, forceLoad: bool = False, cache: dict | None =
             break
         n = n - 1
 
-    print(importModule)
     if not hasattr(importModule, '.'.join(pathParts[n:])):
         raise Exception(f'{path} not exist.')
     return getattr(importModule, '.'.join(pathParts[n:]))
@@ -93,6 +66,39 @@ def importFunction(path: str, *_, forceLoad: bool = False, cache: dict | None = 
     return func
 
 
+# -------------------- config --------------------
+autoTaskConfig = {
+}
+
+if hasattr(settings, 'AUTO_TASK'):
+    autoTaskConfig.update(
+        settings.AUTO_TASK
+    )
+
+
+@dataclass(frozen=True)
+class AutoTaskConfig:
+    # manager
+    authKey: bytes
+    handler_class: str = None
+
+    host: str = 'localhost'
+    port: int = 8800
+    queueSize: int = 100
+    managerTimeout: int = 60
+    dbSecretKey: str = 'SecretKey'
+
+    # cluster
+    name: str = 'AutoTask'
+    poolSize: int = 2
+    processLifeTime: int = 600
+    processTimeout: int = 30
+
+
+CONFIG = AutoTaskConfig(**autoTaskConfig)
+
+
+# -------------------- read only dict --------------------
 class ReadonlyDict(dict):
     """
     Readonly Dict, base on python dict type.
@@ -115,17 +121,14 @@ class ReadonlyDict(dict):
     del __readonly__
 
 
+# -------------------- template --------------------
 @dataclass(frozen=True)
 class SubProcessConfig:
     sn: int
-    taskManager: SyncManager
+    taskManager: BaseManager
     stopEvent: Event
     pipe: Connection
     localName: str
-
-
-def currentTimeStr():
-    return f'''{time.strftime('%Y-%m-%d_%H:%M:%S', time.localtime())}'''
 
 
 @dataclass(frozen=True)
@@ -134,19 +137,36 @@ class TaskConfig:
     func: str
     args: str | None = None
     kwargs: str | None = None
+    combine: int | None = None
 
     timeout: int = CONFIG.processTimeout
     callback: str | None = None
 
 
-class TaskException(BaseException):
-    def __init__(self, *_, code: int, reason: str, ):
-        pass
+@dataclass()
+class TaskManage:
+    taskSn: int
+    priority: int
+    config: TaskConfig
+
+    combine: int = None
+    getBy: str = None
+    done: bool = False
+
+
+def currentTimeStr():
+    return f'''{time.strftime('%Y-%m-%d_%H:%M:%S', time.localtime())}'''
+
+
+# class TaskException(BaseException):
+#     def __init__(self, *_, code: int, reason: str, ):
+#         pass
 
 
 __all__ = (
     'CONFIG',
     'TaskConfig', 'ReadonlyDict',
-    'importFunction',
-    'SubProcessConfig', 'currentTimeStr',
+    'importComponent', 'importFunction',
+    'SubProcessConfig', 'TaskConfig', 'TaskManage',
+    'currentTimeStr',
 )
