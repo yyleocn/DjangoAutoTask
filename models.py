@@ -161,6 +161,7 @@ class TaskRec(models.Model):
     retryTime = TimeStampField(null=True)  # 重试时间
 
     startTime = TimeStampField(null=True)  # 开始时间
+    overTime = TimeStampField(null=True)  # 超时时间
     endTime = TimeStampField(null=True)  # 结束时间
 
     timeout = models.SmallIntegerField(null=True)  # 运行时限
@@ -252,11 +253,13 @@ class TaskRec(models.Model):
         self.setStatus(self.StatusChoice.error)
         return True
 
-    def setRunning(self):
+    def setRunning(self, executorName: str = None):
         if self.status >= self.StatusChoice.success:
             return False
         self.execute += 1
+        self.executorName = executorName
         self.startTime = getCurrentTime()
+        self.overTime = self.timeout + getCurrentTime()
         self.setStatus(self.StatusChoice.running)
         return True
 
@@ -273,6 +276,7 @@ class TaskRec(models.Model):
         if not self.status == self.StatusChoice.running:
             return False
         self.errorText = 'Task run time out.'
+        self.retryTime = getCurrentTime() + self.delay
         self.setStatus(self.StatusChoice.timeout)
         return True
 

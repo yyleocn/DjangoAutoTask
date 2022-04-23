@@ -85,14 +85,14 @@ class AutoTaskConfig:
     host: str = 'localhost'
     port: int = 8800
     queueSize: int = 100
-    managerTimeout: int = 60
+    managerTimeLimit: int = 300
     dbSecretKey: str = 'SecretKey'
 
     # cluster
     name: str = 'AutoTask'
     poolSize: int = 2
     processLifeTime: int = 600
-    processTimeout: int = 30
+    processTimeLimit: int = 30
 
 
 CONFIG = AutoTaskConfig(**autoTaskConfig)
@@ -139,17 +139,18 @@ class TaskConfig:
     kwargs: str | None = None
     combine: int | None = None
 
-    timeout: int = CONFIG.processTimeout
+    timeout: int = CONFIG.processTimeLimit
     callback: str | None = None
 
 
-@dataclass()
-class TaskManage:
+@dataclass
+class TaskState:
     taskSn: int
     priority: int
     config: TaskConfig
 
     combine: int = None
+    overTime: int = None
     getBy: str = None
     done: bool = False
 
@@ -162,11 +163,25 @@ def currentTimeStr():
 #     def __init__(self, *_, code: int, reason: str, ):
 #         pass
 
+class ProxyTimeoutException(Exception):
+    pass
+
+
+def proxyFunctionCall(func: Callable, *args, retry=5, **kwargs):
+    retryCounter = 0
+    while retryCounter < retry + 1:
+        try:
+            return func(*args, **kwargs)._getValue()
+        except:
+            retryCounter = retryCounter + 1
+            time.sleep(1)
+    raise ProxyTimeoutException(f'TaskManager call {func.__name__} fail.')
+
 
 __all__ = (
     'CONFIG',
     'TaskConfig', 'ReadonlyDict',
     'importComponent', 'importFunction',
-    'SubProcessConfig', 'TaskConfig', 'TaskManage',
-    'currentTimeStr',
+    'SubProcessConfig', 'TaskConfig', 'TaskState',
+    'currentTimeStr', 'proxyFunctionCall', 'ProxyTimeoutException',
 )

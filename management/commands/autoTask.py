@@ -48,7 +48,7 @@ class Command(BaseCommand):
     def add_arguments(self, parser):
         parser.add_argument(
             'mode',
-            help='Start mode, manager / cluster.',
+            help='Start mode: manager / cluster.',
         )
 
     @no_translations
@@ -64,12 +64,12 @@ class Command(BaseCommand):
         print(f'Task manager start @ {currentTimeStr()}')
 
         while True:
-            print(f'Task manager is running @ {currentTimeStr()}')
             # managerAdmin.appendTask()._getvalue()
-            time.sleep(5)
-            managerAdmin.lock()._getvalue()
-            time.sleep(0.5)
-            managerAdmin.unlock()._getvalue()
+            managerAdmin.refreshTaskQueue()._getvalue()
+            time.sleep(10)
+
+            # managerAdmin.lock()._getvalue()
+            # managerAdmin.unlock()._getvalue()
 
     @no_translations
     def runCluster(self):
@@ -81,7 +81,8 @@ class Command(BaseCommand):
 
     @no_translations
     def handle(self, *args, **options):
-        if options.get('mode') == 'manager':
-            self.runManager()
-        if options.get('mode') == 'cluster':
-            self.runCluster()
+        match options.get('mode'):
+            case 'manager':
+                self.runManager()
+            case 'cluster':
+                self.runCluster()

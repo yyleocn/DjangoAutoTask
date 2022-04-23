@@ -5,8 +5,6 @@ from typing import Callable
 from multiprocessing import (Process, Pipe, Event, parent_process, current_process, )
 from multiprocessing.managers import BaseManager
 
-import random
-
 from django.core.exceptions import AppRegistryNotReady
 from django.apps.registry import apps
 
@@ -27,9 +25,8 @@ class TaskManager:
 
     def __init__(self, *_, **kwargs):
         self.__taskQueueLock: bool = False
-        self.__taskQueue: list = []
-        self.__taskSnDict: dict = {}
-        self.__taskSnSet: set = set()
+        self.__taskQueue: list[TaskState] = []
+        self.__taskDict: dict[int, TaskState] = {}
         self.__exit: bool = False
         self.__pid = current_process().pid
 
@@ -37,11 +34,12 @@ class TaskManager:
         if CONFIG.handler_class:
             try:
                 handlerClass = importComponent(CONFIG.handler_class)
-                self.__handler = handlerClass()
             except:
+                raise Exception('Handler class not exist.')
+            if not issubclass(handlerClass, AutoTaskHandler):
                 raise Exception('Invalid handler class.')
-        # if not isinstance(handler, AutoTaskHandler):
-        #     raise Exception('Invalid auto task handler.')
+            self.__handler = handlerClass()
+
         else:
             self.__handler = AutoTaskHandler()
 
@@ -63,99 +61,124 @@ class TaskManager:
         time.sleep(10)
         exit()
 
-    def lock(self):
-        self.__taskQueueLock = True
-
-    def unlock(self):
-        self.__taskQueueLock = False
+    # def lock(self):
+    #     self.__taskQueueLock = True
+    #
+    # def unlock(self):
+    #     self.__taskQueueLock = False
 
     def refreshTaskQueue(self):
         self.__taskQueueLock = True
 
-        appendTask = [
-            TaskManage(
-                taskSn=taskRec['taskSn'],
-                combine=taskRec['combine'],
-                priority=taskRec['priority'],
+        currentTime = time.time()
+        for taskState in self.__taskQueue:
+            if taskState.done:
+                continue
+            if taskState.overTime is None:
+                continue
+            if taskState.overTime + 5 < currentTime:
+                taskState.overTime = None
+                self.taskTimeout(taskSn=taskState.taskSn)
+                self.removeTask(taskSn=taskState.taskSn)
+
+        appendTask: list[TaskState] = [
+            TaskState(
+                taskSn=taskRec['taskSn'], combine=taskRec['combine'], priority=taskRec['priority'],
                 config=TaskConfig(
-                    sn=taskRec['taskSn'],
-                    func=taskRec['func'],
-                    args=taskRec['args'],
-                    kwargs=taskRec['kwargs'],
-                    combine=taskRec['combine'],
-                    timeout=taskRec['timeout'],
-                    callback=taskRec['callback'],
+                    sn=taskRec['taskSn'], combine=taskRec['combine'],
+                    timeout=taskRec['timeout'] or CONFIG.processTimeLimit,
+                    func=taskRec['func'], callback=taskRec['callback'],
+                    args=taskRec['args'], kwargs=taskRec['kwargs'],
                 ),
             ) for taskRec in self.__handler.getTaskQueue(limit=CONFIG.queueSize)
-            if taskRec not in self.__taskSnSet
+            if taskRec['taskSn'] not in self.__taskDict
         ]
         appendTask.sort(key=attrgetter('priority', 'taskSn'))
 
-        self.__taskQueue = [
-                               taskRec for taskRec in [*self.__taskQueue, *appendTask, ]
-                               if not taskRec.done
-                           ][:CONFIG.queueSize]
+        newQueue = [
+                       taskRec for taskRec in [*self.__taskQueue, *appendTask, ] if not taskRec.done
+                   ][:CONFIG.queueSize]
 
-        self.__taskSnDict = {
-            taskRec['taskSn']: taskRec for taskRec in self.__taskQueue
-        }
+        newQueue.sort(key=attrgetter('priority', 'taskSn'))
 
-        self.__taskSnSet = set(self.__taskSnDict.keys())
+        self.__taskDict = {taskRec.taskSn: taskRec for taskRec in newQueue}
+        self.__taskQueue = newQueue
+
+        print(f'TaskManager refreshed queue, current count is {len(self.__taskQueue)}')
 
         self.__taskQueueLock = False
 
-    def getTask(self, *args, processor: str = None, combine: int = None, **kwargs):
+    def getTask(self, *args, workerName: str = None, combine: int = None, **kwargs) -> TaskConfig | int:
         if self.__taskQueueLock or self.__exit:
-            return None
+            return -1
 
-        print(f'Processor {processor} get task.')
+        selectTaskRec = None
 
-        self.__taskSnCounter += 1
+        if combine:
+            for taskRec in self.__taskQueue:
+                if taskRec.combine == combine and not taskRec.done and not taskRec.getBy:
+                    selectTaskRec = taskRec
+                    break
 
-        if self.__taskSnCounter % 10 == 0:
-            runArgs = 'A'
-        else:
-            runArgs = self.__handler.serialize(
-                (
-                    random.randint(1, 100),
-                    random.randint(1, 100),
-                    random.randint(1, 100),
-                    random.randint(1, 100),
-                )
-            )
+        if not selectTaskRec:
+            for taskRec in self.__taskQueue:
+                if not taskRec.done and not taskRec.getBy:
+                    selectTaskRec = taskRec
+                    break
+        if not selectTaskRec:
+            return 1
 
-        return TaskConfig(
-            sn=self.__taskSnCounter,
-            func='AutoTask.Test.autoTaskTest.test',
-            args=runArgs,
-            kwargs=self.__handler.serialize(
-                {
-                    'taskCount': len(self.__taskQueue),
-                }
-            ),
-        )
+        selectTaskRec.getBy = workerName
+        selectTaskRec.overTime = time.time() + selectTaskRec.config.timeout
+
+        print(f'Worker {workerName} get task {selectTaskRec.taskSn}.')
+
+        return selectTaskRec.config
 
     def ping(self, *_, **kwargs):
+        self.redundantKwargs(**kwargs)
         print(f'Ping task manager @ {currentTimeStr()}')
         return True
 
-    def taskFinish(self, *_, taskSn: int = None, **kwargs):
-        if not isinstance(taskSn, int):
-            return None
+    def removeTask(self, taskSn: int):
+        taskState = self.__taskDict.get(taskSn)
+        if taskState is None:
+            return False
+        self.__taskDict.pop(taskSn)
+        self.__taskQueue.remove(taskState)
         return True
 
-    def taskError(self, *_, errorCode: int = 0, errorText: str, **kwargs):
-        return True
+    def taskRunning(self, *_, taskSn: int):
+        self.__handler.taskRunning(taskSn=taskSn)
 
-    def taskTimeout(self, *_, **kwargs):
-        return True
-
-    def configError(self, *_, taskSn):
-        print(f'    Task {taskSn} config error.')
-        return True
-
-    def taskSuccess(self, *_, taskSn, result):
+    def taskSuccess(self, *_, taskSn: int = None, result: any = None, **kwargs):
+        self.redundantKwargs(**kwargs)
         print(f'    Task {taskSn} success, result is {result}.')
+
+        self.removeTask(taskSn)
+        return self.__handler.taskSuccess(taskSn=taskSn, result=result, )
+
+    def taskError(self, *_, taskSn: int, errorText: str, **kwargs):
+        self.redundantKwargs(**kwargs)
+
+        return self.__handler.taskError(taskSn=taskSn, errorText=errorText)
+
+    def taskTimeout(self, *_, taskSn: int, **kwargs):
+        self.redundantKwargs(**kwargs)
+
+        print(f'    Task {taskSn} timeout.')
+        return self.__handler.taskTimeout(taskSn=taskSn)
+
+    def invalidConfig(self, *_, taskSn: int, errorText: str, **kwargs):
+        self.redundantKwargs(**kwargs)
+
+        return self.__handler.taskInvalidConfig(taskSn=taskSn, errorText=errorText, )
+
+    @staticmethod
+    def redundantKwargs(**kwargs):
+        pass
+        if kwargs:
+            print(f'Redundant kwargs {kwargs}.')
 
 
 # -------------------- worker cluster --------------------
@@ -281,8 +304,8 @@ class WorkerProcess:
         self.__stopEvent = stopEvent
         self.__processFunc = processFunc
 
-        self.__processAliveTime = time.time()
-        self.__processTimeout = CONFIG.processTimeout
+        self.__processRefreshTime = time.time()
+        self.__processOvertime = CONFIG.processTimeLimit
         self.__processPipe, self.__pipe = Pipe()
 
         self.createProcess()
@@ -304,7 +327,7 @@ class WorkerProcess:
                 ),
             )
             self.__process.start()
-            self.__processAliveTime = time.time()
+            self.__processRefreshTime = time.time()
         else:
             print('This is a sub process.')
 
@@ -321,11 +344,16 @@ class WorkerProcess:
             self.createProcess()
 
         while self.__pipe.poll():
-            recvData: tuple = self.__pipe.recv()
-            self.__processAliveTime = recvData[0]
-            self.__processTimeout = recvData[1] or CONFIG.processTimeout
+            code, value = self.__pipe.recv()
+            match code:
+                case 'alive':
+                    self.__processRefreshTime = value
+                case 'overtime':
+                    self.__processOvertime = value
 
-        if time.time() - self.__processAliveTime > self.__processTimeout:
+        currentTime = time.time()
+
+        if currentTime > self.__processOvertime or currentTime > self.__processRefreshTime + CONFIG.processTimeLimit:
             self.__process.terminate()
             time.sleep(0.5)
 
