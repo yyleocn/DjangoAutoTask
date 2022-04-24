@@ -74,10 +74,7 @@ class Command(BaseCommand):
     @no_translations
     def runCluster(self):
         workerCluster = self.workerClusterInit()
-        try:
-            workerCluster.run()
-        except KeyboardInterrupt as intP_:
-            workerCluster.exit()
+        workerCluster.run()
 
     @no_translations
     def handle(self, *args, **options):

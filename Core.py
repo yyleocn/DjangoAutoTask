@@ -183,7 +183,7 @@ class WorkerCluster:
         if managerCon is None:
             raise Exception('Invalid task manager')
 
-        self.__processPool = []
+        self.__processPool: list[WorkerProcess] = []
         self.__poolSize = poolSize
 
         self.__exitEvent = Event()
@@ -195,7 +195,7 @@ class WorkerCluster:
 
         def exitSignalHandler(*_, ):
             print(f'Cluster {self.pid} receive stop signal @ {currentTimeStr()}')
-            self.exit()
+            self.__exitEvent.set()
 
         signal.signal(signal.SIGINT, exitSignalHandler)
         signal.signal(signal.SIGTERM, exitSignalHandler)
@@ -227,7 +227,6 @@ class WorkerCluster:
                 manager=self.__managerCon,
             )
             self.__processPool.append(process)
-            time.sleep(0.5)
 
     @property
     def pid(self):
@@ -243,27 +242,23 @@ class WorkerCluster:
     def exitEvent(self):
         return self.__exitEvent
 
-    def exit(self):
-        self.__exitEvent.set()
-        while True:
-            allStop = True
-            for subProcess in self.__processPool:
-                if subProcess.isAlive():
-                    allStop = False
-            if allStop:
-                print(f'Cluster {self.pid} exit @ {currentTimeStr()}')
-                exit(0)
-            time.sleep(0.5)
-
     def run(self):
         runCounter = 0
         while True:
             runCounter += 1
             for subProcess in self.__processPool:
-                subProcess.checkAlive()
+                subProcess.checkProcess()
 
             if self.__exitEvent.is_set():
-                break
+                allStop = True
+                for subProcess in self.__processPool:
+                    if subProcess.isAlive():
+                        allStop = False
+                if allStop:
+                    print(f'Cluster {self.pid} exit @ {currentTimeStr()}')
+                    return None
+                time.sleep(0.5)
+                continue
 
             if runCounter > 20:
                 try:
@@ -277,7 +272,6 @@ class WorkerCluster:
             self.appendProcess()
 
             time.sleep(0.5)
-        self.exit()
 
 
 # -------------------- sub process --------------------
@@ -296,7 +290,6 @@ class WorkerProcess:
         self.__stopEvent = stopEvent
         self.__processFunc = processFunc
 
-        self.__processRefreshTime = time.time()
         self.__processOvertime = None
         self.__processPipe, self.__pipe = Pipe()
 
@@ -307,8 +300,7 @@ class WorkerProcess:
             while self.__pipe.poll():
                 _ = self.__pipe.recv()
 
-            self.__processRefreshTime = time.time()
-            self.__processOvertime = None
+            self.__processOvertime = time.time() + CONFIG.taskTimeout * 2
 
             self.__process = Process(
                 target=self.__processFunc,
@@ -323,7 +315,6 @@ class WorkerProcess:
                 ),
             )
             self.__process.start()
-            self.__processRefreshTime = time.time()
             time.sleep(0.5)
 
         else:
@@ -334,28 +325,25 @@ class WorkerProcess:
             return False
         return self.__process.is_alive()
 
-    def checkAlive(self):
-        if not self.isAlive():
+    def checkProcess(self):
+        if not self.isAlive() and not self.__stopEvent.is_set():
             self.createProcess()
 
         while self.__pipe.poll():
             code, value = self.__pipe.recv()
             match code:
                 case 'alive':
-                    self.__processRefreshTime = value
+                    self.__processOvertime = value + CONFIG.taskTimeout
                 case 'overtime':
                     self.__processOvertime = value
 
-        currentTime = time.time()
-
-        if (
-                currentTime > self.__processOvertime
-        ) or (
-                currentTime > self.__processRefreshTime + CONFIG.taskTimeout
-        ):
+        if self.__processOvertime < time.time():
             self.processTerminate()
 
     def processTerminate(self):
+        if not self.isAlive():
+            return True
+
         print(f'-- Worker {self.__sn}|{self.__process.pid} timeout, terminate')
         self.__process.terminate()
         time.sleep(0.5)

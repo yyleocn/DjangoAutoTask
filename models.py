@@ -249,7 +249,6 @@ class TaskRec(models.Model):
         if not self.status == self.StatusChoice.running:
             return False
         self.errorText = errorText[:100]
-        print(f'---- Task error f{self.taskSn} {errorText}')
         if self.execute >= self.retry:
             self.setStatus(self.StatusChoice.fail)
             return
