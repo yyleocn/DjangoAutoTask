@@ -206,6 +206,7 @@ class TaskRec(models.Model):
             ),
             ~(Q(status=cls.StatusChoice.error) & Q(retry__gt=currentTime)),
             Q(planTime__isnull=True) | Q(planTime__lte=currentTime),
+            Q(retryTime__isnull=True) | Q(retryTime__lte=currentTime),
             Q(pause=False),
             Q(cancel=False),
         ]
@@ -244,15 +245,16 @@ class TaskRec(models.Model):
         self.setStatus(self.StatusChoice.invalid_config)
         return True
 
-    def setError(self, errorText: str):
+    def setError(self, errorText: str, errorStatus=StatusChoice.error):
         if not self.status == self.StatusChoice.running:
             return False
         self.errorText = errorText[:100]
-        if self.execute > self.retry:
+        print(f'---- Task error f{self.taskSn} {errorText}')
+        if self.execute >= self.retry:
             self.setStatus(self.StatusChoice.fail)
             return
         self.retryTime = getCurrentTime() + self.delay
-        self.setStatus(self.StatusChoice.error)
+        self.setStatus(errorStatus)
         return True
 
     def setRunning(self, overTime: int, executorName: str = None, ):
@@ -274,85 +276,7 @@ class TaskRec(models.Model):
         self.setStatus(self.StatusChoice.success)
         return True
 
-    # def setTimeout(self, ):
-    #     if not self.status == self.StatusChoice.running:
-    #         return False
-    #     self.errorText = 'Task run time out.'
-    #     self.retryTime = getCurrentTime() + self.delay
-    #     self.setStatus(self.StatusChoice.timeout)
-    #     return True
-
 
 TaskRec.objects.filter(
     retry__lte=getCurrentTime(),
 )
-
-# def running(self):
-#     self.execute += 1
-#     self.startTime = time.time()
-#     self.setStatus(RUNNING)
-#
-# def taskError(self, *_, errorText, errorStatus, ):
-#     self.errorText = errorText
-#     self.setStatus(errorStatus)
-#
-# def setResult(self, result_):
-#     self.result = agent.serialize(result_)
-#     self.setStatus(RUN_SUCCESS)
-#
-# def taskRun(self):
-#     if self.status < 0:
-#         return None
-#
-#     if self.execute > self.retry:
-#         self.taskFail()
-#         return None
-#
-#     try:
-#         func: Callable = importFunction(self.func)
-#         if not callable(func):
-#             self.taskError(
-#                 errorText='Task function',
-#                 errorStatus=INVALID_CONFIG,
-#             )
-#     except BaseException:
-#         self.invalidConfig('Invalid function')
-#         return None
-#
-#     try:
-#         args = agent.deserialize(self.args)
-#     except BaseException:
-#         self.invalidConfig('Invalid args')
-#         return None
-#
-#     try:
-#         kwargs = agent.deserialize(self.kwargs)
-#     except BaseException:
-#         self.invalidConfig('Invalid kwargs')
-#         return None
-#
-#     self.running()
-#     result = func(*args, **kwargs)
-#
-#     try:
-#         self.setResult(result)
-#     except BaseException:
-#         self.taskError(
-#             errorText='',
-#             errorStatus=CALLBACK_ERROR,
-#         )
-#
-#     if self.callback:
-#         try:
-#             callback: Callable = importFunction(self.callback)
-#             if not callable(callback):
-#                 self.taskError(
-#                     errorText='Callback is not a function.',
-#                     errorStatus=CALLBACK_ERROR,
-#                 )
-#
-#         except:
-#             self.taskError(
-#                 errorText='Callback run error.',
-#                 errorStatus=CALLBACK_ERROR,
-#             )

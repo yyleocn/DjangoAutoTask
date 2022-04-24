@@ -92,7 +92,7 @@ class AutoTaskConfig:
     name: str = 'AutoTask'
     poolSize: int = 2
     processLifeTime: int = 600
-    taskTimeout: int = 30
+    taskTimeout: int = 10
 
 
 CONFIG = AutoTaskConfig(**autoTaskConfig)

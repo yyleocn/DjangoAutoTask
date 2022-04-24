@@ -16,10 +16,10 @@ def workerFunc(workerConfig: SubProcessConfig, *args, **kwargs):
     processID = f'{workerConfig.sn}|{pid}'
     workerConfig.taskManager.methodBound()
 
-    print(f'* Worker {processID} start @ {currentTimeStr()}.')
+    print(f'* Worker {processID} start @ {currentTimeStr()}')
 
     def stopSignalHandler(*_, ):
-        print(f'Worker {processID} receive stop signal @ {currentTimeStr()}.')
+        print(f'Worker {processID} receive stop signal @ {currentTimeStr()}')
         workerStopEvent.set()
 
     signal.signal(signal.SIGINT, stopSignalHandler)
@@ -29,16 +29,14 @@ def workerFunc(workerConfig: SubProcessConfig, *args, **kwargs):
 
     while True:
         if workerConfig.stopEvent.is_set() or workerStopEvent.is_set():
-            print(f'Worker {processID} exit @ {currentTimeStr()}.')
+            print(f'Worker {processID} exit @ {currentTimeStr()}')
             exit()
 
         currentTime = time.time()
-        workerConfig.pipe.send(
-            ('alive', currentTime)
-        )
+        workerConfig.pipe.send(('alive', currentTime))
 
         if currentTime - initTime > CONFIG.processLifeTime:
-            print(f'Worker {processID} life end, exit for next.')
+            print(f'Worker {processID} life end, exit for next')
             exit()
         # -------------------- check event status --------------------
 
@@ -57,18 +55,18 @@ def workerFunc(workerConfig: SubProcessConfig, *args, **kwargs):
                     time.sleep(0.2)
                     continue
                 case 1:
-                    print(f'No task in manager, worker {processID} is waiting.')
+                    print(f'No task in manager, worker {processID} is waiting')
                     time.sleep(5)
                     continue
 
             # -------------------- send alive time --------------------
             workerConfig.pipe.send(('overtime', currentTime + taskConfig.timeout))
 
-            print(f'Process {processID} get task {taskConfig.sn}.')
+            print(f'Process {processID} get task {taskConfig.sn}')
             try:
                 runConfig = AutoTaskHandler.configUnpack(taskConfig)
             except:
-                print(f'  Task  {taskConfig.sn} config invalid.')
+                print(f'  Task  {taskConfig.sn} config invalid')
                 proxyFunctionCall(
                     workerConfig.taskManager.invalidConfig,
                     taskSn=taskConfig.sn
@@ -83,7 +81,7 @@ def workerFunc(workerConfig: SubProcessConfig, *args, **kwargs):
                     **runConfig['kwargs']
                 )
             except Exception as err_:
-                print(f'  Task {taskConfig.sn} run error.')
+                print(f'  Task {taskConfig.sn} run error: {err_}')
                 proxyFunctionCall(
                     workerConfig.taskManager.taskError,
                     taskSn=taskConfig.sn,
@@ -91,7 +89,7 @@ def workerFunc(workerConfig: SubProcessConfig, *args, **kwargs):
                 )
                 continue
 
-            print(f'  Task {taskConfig.sn} success.')
+            print(f'  Task {taskConfig.sn} success')
 
             proxyFunctionCall(
                 workerConfig.taskManager.taskSuccess,
@@ -100,10 +98,10 @@ def workerFunc(workerConfig: SubProcessConfig, *args, **kwargs):
             )
 
         except ProxyTimeoutException as err_:
-            print(f'Task manager timeout @ worker {processID}.')
+            print(f'Task manager timeout @ worker {processID}')
             # -------------------- task manager timeout --------------------
             if currentTime - managerCheckTime > CONFIG.managerTimeLimit:
-                print(f'Task manager closed, worker {processID} exit.')
+                print(f'Task manager closed, worker {processID} exit')
                 exit()
 
             time.sleep(5)

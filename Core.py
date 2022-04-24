@@ -30,21 +30,21 @@ class TaskManager:
         self.__exit: bool = False
         self.__pid = current_process().pid
 
-        print(f'Task manager {self.pid} init.')
+        print(f'Task manager {self.pid} init')
         if CONFIG.handler_class:
             try:
                 handlerClass = importComponent(CONFIG.handler_class)
             except:
-                raise Exception('Handler class not exist.')
+                raise Exception('Handler class not exist')
             if not issubclass(handlerClass, AutoTaskHandler):
-                raise Exception('Invalid handler class.')
+                raise Exception('Invalid handler class')
             self.__handler = handlerClass()
 
         else:
             self.__handler = AutoTaskHandler()
 
         def exitSignalHandler(*_, ):
-            print(f'Manager {self.pid} receive stop signal @ {currentTimeStr()}.')
+            print(f'Manager {self.pid} receive stop signal @ {currentTimeStr()}')
             self.exit()
 
         signal.signal(signal.SIGINT, exitSignalHandler)
@@ -131,7 +131,7 @@ class TaskManager:
         selectTaskRec.executor = workerName
         selectTaskRec.overTime = time.time() + selectTaskRec.config.timeout
 
-        print(f'Worker {workerName} get task {selectTaskRec.taskSn}.')
+        print(f'Worker {workerName} get task {selectTaskRec.taskSn}')
 
         # self.taskRunning(taskSn=selectTaskRec.taskSn)
         self.__handler.taskRunning(
@@ -155,20 +155,21 @@ class TaskManager:
         return True
 
     def taskSuccess(self, *_, taskSn: int = None, result: any = None, ):
-        print(f'    Task {taskSn} success, result is {result}.')
+        print(f'  Task {taskSn} success, result is {result}')
         self.removeTask(taskSn)
         return self.__handler.taskSuccess(taskSn=taskSn, result=result, )
 
     def taskError(self, *_, taskSn: int, errorText: str, ):
+        print(f'  Task {taskSn} error: {errorText}')
+        self.removeTask(taskSn)
         return self.__handler.taskError(taskSn=taskSn, errorText=errorText)
 
     def taskTimeout(self, *_, taskSn: int, ):
-        print(f'    Task {taskSn} timeout.')
+        print(f'  Task {taskSn} timeout')
         return self.__handler.taskTimeout(taskSn=taskSn)
 
     def invalidConfig(self, *_, taskSn: int, errorText: str, ):
         return self.__handler.taskInvalidConfig(taskSn=taskSn, errorText=errorText, )
-
 
 
 # -------------------- worker cluster --------------------
@@ -180,7 +181,7 @@ class WorkerCluster:
             processFunc: Callable,
     ):
         if managerCon is None:
-            raise Exception('Invalid task manager.')
+            raise Exception('Invalid task manager')
 
         self.__processPool = []
         self.__poolSize = poolSize
@@ -193,7 +194,7 @@ class WorkerCluster:
         self.__processCounter = 0
 
         def exitSignalHandler(*_, ):
-            print(f'Cluster {self.pid} receive stop signal @ {currentTimeStr()}.')
+            print(f'Cluster {self.pid} receive stop signal @ {currentTimeStr()}')
             self.exit()
 
         signal.signal(signal.SIGINT, exitSignalHandler)
@@ -207,10 +208,10 @@ class WorkerCluster:
                 self.__managerCon.connect()
                 break
             except Exception as err_:
-                print(f'Cluster {self.pid} connect task manager fail, waiting.')
+                print(f'Cluster {self.pid} connect task manager fail, waiting')
                 time.sleep(2)
 
-        print(f'Cluster {self.pid} start to create process, pool size is {self.__poolSize}.')
+        print(f'Cluster {self.pid} start to create process, pool size is {self.__poolSize}')
 
     def appendProcess(self):
         if self.__exitEvent.is_set():
@@ -247,21 +248,24 @@ class WorkerCluster:
         while True:
             allStop = True
             for subProcess in self.__processPool:
-                if subProcess.is_alive():
+                if subProcess.isAlive():
                     allStop = False
             if allStop:
-                print(f'Cluster {self.pid} exit @ {currentTimeStr()}.')
-                exit()
+                print(f'Cluster {self.pid} exit @ {currentTimeStr()}')
+                exit(0)
             time.sleep(0.5)
 
     def run(self):
         runCounter = 0
         while True:
             runCounter += 1
+            for subProcess in self.__processPool:
+                subProcess.checkAlive()
+
             if self.__exitEvent.is_set():
                 break
 
-            if runCounter > 9:
+            if runCounter > 20:
                 try:
                     pingRes = self.__managerCon.ping()._getvalue()
                     runCounter = 0
@@ -271,10 +275,8 @@ class WorkerCluster:
                     continue
 
             self.appendProcess()
-            for subProcess in self.__processPool:
-                subProcess.checkAlive()
 
-            time.sleep(1)
+            time.sleep(0.5)
         self.exit()
 
 
@@ -295,7 +297,7 @@ class WorkerProcess:
         self.__processFunc = processFunc
 
         self.__processRefreshTime = time.time()
-        self.__processOvertime = CONFIG.taskTimeout
+        self.__processOvertime = None
         self.__processPipe, self.__pipe = Pipe()
 
         self.createProcess()
@@ -304,6 +306,10 @@ class WorkerProcess:
         if not parent_process():
             while self.__pipe.poll():
                 _ = self.__pipe.recv()
+
+            self.__processRefreshTime = time.time()
+            self.__processOvertime = None
+
             self.__process = Process(
                 target=self.__processFunc,
                 args=(
@@ -318,19 +324,18 @@ class WorkerProcess:
             )
             self.__process.start()
             self.__processRefreshTime = time.time()
-        else:
-            print('This is a sub process.')
+            time.sleep(0.5)
 
-    def is_alive(self):
+        else:
+            print('This is a sub process')
+
+    def isAlive(self):
         if not self.__process:
             return False
         return self.__process.is_alive()
 
     def checkAlive(self):
-        if self.__process is None:
-            self.createProcess()
-
-        if not self.__process.is_alive():
+        if not self.isAlive():
             self.createProcess()
 
         while self.__pipe.poll():
@@ -343,15 +348,21 @@ class WorkerProcess:
 
         currentTime = time.time()
 
-        if currentTime > self.__processOvertime or currentTime > self.__processRefreshTime + CONFIG.taskTimeout:
-            self.__process.terminate()
-            time.sleep(0.5)
+        if (
+                currentTime > self.__processOvertime
+        ) or (
+                currentTime > self.__processRefreshTime + CONFIG.taskTimeout
+        ):
+            self.processTerminate()
+
+    def processTerminate(self):
+        print(f'-- Worker {self.__sn}|{self.__process.pid} timeout, terminate')
+        self.__process.terminate()
+        time.sleep(0.5)
 
     @property
     def pid(self):
-        if self.__process is None:
-            return None
-        if not self.__process.is_alive():
+        if not self.isAlive():
             return None
         return self.__process.pid
 
