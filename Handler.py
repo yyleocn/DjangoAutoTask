@@ -15,7 +15,7 @@ except AppRegistryNotReady:
 
     django.setup()
 
-from .Component import CONFIG, TaskConfig, importFunction
+from .Component import CONFIG, TaskConfig, importFunction, TaskState
 
 from .models import TaskRec, TaskRecQueueFields
 
@@ -34,8 +34,19 @@ class AutoTaskHandler:
         return json.loads(data)
 
     @classmethod
-    def getTaskQueue(cls, *_, taskType: int | None = None, limit: int | None = None) -> list:
-        return TaskRec.getTaskQueue(taskType=taskType, limit=limit).values(*TaskRecQueueFields)
+    def getTaskQueue(cls, *_, taskType: int | None = None, limit: int | None = None) -> list[TaskState]:
+        queryRes = TaskRec.getTaskQueue(taskType=taskType, limit=limit).values(*TaskRecQueueFields)
+        return [
+            TaskState(
+                taskSn=taskRec['taskSn'], combine=taskRec['combine'], priority=taskRec['priority'],
+                config=TaskConfig(
+                    sn=taskRec['taskSn'], combine=taskRec['combine'],
+                    timeout=taskRec['timeout'] or CONFIG.taskTimeout,
+                    func=taskRec['func'], callback=taskRec['callback'],
+                    args=taskRec['args'], kwargs=taskRec['kwargs'],
+                ),
+            ) for taskRec in queryRes
+        ]
 
     @classmethod
     def setTaskStatus(cls, *_, taskSn, status: int, ):

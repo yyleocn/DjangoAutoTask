@@ -31,6 +31,7 @@ class TaskManager:
         self.__pid = current_process().pid
 
         print(f'Task manager {self.pid} init')
+
         if CONFIG.handler_class:
             try:
                 handlerClass = importComponent(CONFIG.handler_class)
@@ -61,16 +62,13 @@ class TaskManager:
         time.sleep(10)
         exit()
 
-    # def lock(self):
-    #     self.__taskQueueLock = True
-    #
-    # def unlock(self):
-    #     self.__taskQueueLock = False
-
     def refreshTaskQueue(self):
+        # --------------- lock queue --------------------
         self.__taskQueueLock = True
 
         currentTime = time.time()
+
+        # --------------- remove overtime task --------------------
         for taskState in self.__taskQueue:
             if taskState.done:
                 continue
@@ -81,66 +79,77 @@ class TaskManager:
                 self.taskTimeout(taskSn=taskState.taskSn)
                 self.removeTask(taskSn=taskState.taskSn)
 
-        appendTask: list[TaskState] = [
-            TaskState(
-                taskSn=taskRec['taskSn'], combine=taskRec['combine'], priority=taskRec['priority'],
-                config=TaskConfig(
-                    sn=taskRec['taskSn'], combine=taskRec['combine'],
-                    timeout=taskRec['timeout'] or CONFIG.taskTimeout,
-                    func=taskRec['func'], callback=taskRec['callback'],
-                    args=taskRec['args'], kwargs=taskRec['kwargs'],
-                ),
-            ) for taskRec in self.__handler.getTaskQueue(limit=CONFIG.queueSize)
-            if taskRec['taskSn'] not in self.__taskDict
+        # --------------- get executing task --------------------
+        executingTask: list[TaskState] = [
+            taskState for taskState in self.__taskQueue
+            if taskState.executor is not None
         ]
-        appendTask.sort(key=attrgetter('priority', 'taskSn'))
+        executingTaskSn: set[int] = {
+            taskState.taskSn for taskState in executingTask
+        }
 
+        # --------------- get append task --------------------
+        appendTask: list[TaskState] = [
+            taskState for taskState in self.__handler.getTaskQueue(limit=CONFIG.queueSize)
+            if taskState.taskSn not in executingTaskSn
+        ]
+
+        # --------------- sort by priority --------------------
         newQueue = [
-                       taskRec for taskRec in [*self.__taskQueue, *appendTask, ] if not taskRec.done
+                       taskRec for taskRec in [*executingTask, *appendTask, ] if not taskRec.done
                    ][:CONFIG.queueSize]
 
+        # --------------- new queue sort --------------------
         newQueue.sort(key=attrgetter('priority', 'taskSn'))
 
+        # --------------- set new queue --------------------
         self.__taskDict = {taskRec.taskSn: taskRec for taskRec in newQueue}
         self.__taskQueue = newQueue
 
         print(f'TaskManager refreshed queue, current count is {len(self.__taskQueue)}')
 
+        # --------------- unlock queue --------------------
         self.__taskQueueLock = False
 
     def getTask(self, *args, workerName: str = None, combine: int = None, **kwargs) -> TaskConfig | int:
+        # --------------- queue lock or exit return -1 --------------------
         if self.__taskQueueLock or self.__exit:
             return -1
 
-        selectTaskRec = None
+        selectTask = None
 
+        # --------------- search by combine --------------------
         if combine:
-            for taskRec in self.__taskQueue:
-                if taskRec.combine == combine and not taskRec.executor:
-                    selectTaskRec = taskRec
+            for taskState in self.__taskQueue:
+                if taskState.combine == combine and not taskState.executor:
+                    selectTask = taskState
                     break
 
-        if not selectTaskRec:
-            for taskRec in self.__taskQueue:
-                if not taskRec.done and not taskRec.executor:
-                    selectTaskRec = taskRec
+        # --------------- search all queue --------------------
+        if selectTask is None:
+            for taskState in self.__taskQueue:
+                if not taskState.done and not taskState.executor:
+                    selectTask = taskState
                     break
-        if not selectTaskRec:
+
+        # --------------- no task return 1 --------------------
+        if selectTask is None:
             return 1
 
-        selectTaskRec.executor = workerName
-        selectTaskRec.overTime = time.time() + selectTaskRec.config.timeout
+        # --------------- lock the task --------------------
+        selectTask.executor = workerName
+        selectTask.overTime = time.time() + selectTask.config.timeout
 
-        print(f'Worker {workerName} get task {selectTaskRec.taskSn}')
-
-        # self.taskRunning(taskSn=selectTaskRec.taskSn)
+        # --------------- set task running to db --------------------
         self.__handler.taskRunning(
-            taskSn=selectTaskRec.taskSn,
-            overTime=int(selectTaskRec.overTime),
-            executorName=selectTaskRec.executor,
+            taskSn=selectTask.taskSn,
+            overTime=int(selectTask.overTime),
+            executorName=selectTask.executor,
         )
 
-        return selectTaskRec.config
+        print(f'Worker {workerName} get task {selectTask.taskSn}')
+
+        return selectTask.config
 
     def ping(self, *_, ):
         print(f'Ping task manager @ {currentTimeStr()}')
@@ -194,8 +203,8 @@ class WorkerCluster:
         self.__processCounter = 0
 
         def exitSignalHandler(*_, ):
-            print(f'Cluster {self.pid} receive stop signal @ {currentTimeStr()}')
             self.__exitEvent.set()
+            print(f'Cluster {self.pid} receive stop signal @ {currentTimeStr()}')
 
         signal.signal(signal.SIGINT, exitSignalHandler)
         signal.signal(signal.SIGTERM, exitSignalHandler)
@@ -222,7 +231,7 @@ class WorkerCluster:
             self.__processCounter += 1
             process = WorkerProcess(
                 sn=self.__processCounter,
-                stopEvent=self.__exitEvent,
+                exitEvent=self.__exitEvent,
                 processFunc=self.__processFunc,
                 manager=self.__managerCon,
             )
@@ -282,12 +291,12 @@ class WorkerProcess:
             self, *_,
             sn: int,
             manager: BaseManager,
-            stopEvent,
+            exitEvent,
             processFunc,
     ):
         self.__sn = sn
         self.__taskManager = manager
-        self.__stopEvent = stopEvent
+        self.__exitEvent = exitEvent
         self.__processFunc = processFunc
 
         self.__processOvertime = None
@@ -307,7 +316,7 @@ class WorkerProcess:
                 args=(
                     SubProcessConfig(
                         sn=self.__sn,
-                        stopEvent=self.__stopEvent,
+                        exitEvent=self.__exitEvent,
                         taskManager=self.__taskManager,
                         pipe=self.__processPipe,
                         localName=CONFIG.name,
@@ -326,7 +335,7 @@ class WorkerProcess:
         return self.__process.is_alive()
 
     def checkProcess(self):
-        if not self.isAlive() and not self.__stopEvent.is_set():
+        if not self.isAlive() and not self.__exitEvent.is_set():
             self.createProcess()
 
         while self.__pipe.poll():

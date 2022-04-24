@@ -28,17 +28,20 @@ def workerFunc(workerConfig: SubProcessConfig, *args, **kwargs):
     managerCheckTime = time.time()
 
     while True:
-        if workerConfig.stopEvent.is_set() or workerStopEvent.is_set():
+        # -------------------- exit event check --------------------
+        if workerConfig.exitEvent.is_set() or workerStopEvent.is_set():
             print(f'Worker {processID} exit @ {currentTimeStr()}')
             exit()
 
         currentTime = time.time()
-        workerConfig.pipe.send(('alive', currentTime))
 
+        # -------------------- work process life time --------------------
         if currentTime - initTime > CONFIG.processLifeTime:
             print(f'Worker {processID} life end, exit for next')
             exit()
-        # -------------------- check event status --------------------
+
+        # -------------------- heart beat --------------------
+        workerConfig.pipe.send(('alive', currentTime))
 
         try:
             # -------------------- get task config --------------------
@@ -47,6 +50,7 @@ def workerFunc(workerConfig: SubProcessConfig, *args, **kwargs):
                 workerName=f'{workerConfig.localName}-{processID}',
             )
 
+            # -------------------- refresh manager check time --------------------
             managerCheckTime = currentTime
 
             match taskConfig:
@@ -59,9 +63,7 @@ def workerFunc(workerConfig: SubProcessConfig, *args, **kwargs):
                     time.sleep(5)
                     continue
 
-            # -------------------- send alive time --------------------
-            workerConfig.pipe.send(('overtime', currentTime + taskConfig.timeout))
-
+            # -------------------- config check & unpack --------------------
             print(f'Process {processID} get task {taskConfig.sn}')
             try:
                 runConfig = AutoTaskHandler.configUnpack(taskConfig)
@@ -73,14 +75,18 @@ def workerFunc(workerConfig: SubProcessConfig, *args, **kwargs):
                 )
                 continue
 
-            # -------------------- execute the function --------------------
+            # -------------------- send overtime --------------------
+            workerConfig.pipe.send(('overtime', currentTime + taskConfig.timeout))
+
             try:
+                # -------------------- executor task --------------------
                 taskFunc = runConfig['func']
                 result = taskFunc(
                     *runConfig['args'],
                     **runConfig['kwargs']
                 )
             except Exception as err_:
+                # -------------------- after crash --------------------
                 print(f'  Task {taskConfig.sn} run error: {err_}')
                 proxyFunctionCall(
                     workerConfig.taskManager.taskError,
@@ -91,19 +97,23 @@ def workerFunc(workerConfig: SubProcessConfig, *args, **kwargs):
 
             print(f'  Task {taskConfig.sn} success')
 
+            # -------------------- send result --------------------
             proxyFunctionCall(
                 workerConfig.taskManager.taskSuccess,
                 taskSn=taskConfig.sn,
                 result=result,
             )
 
+        # -------------------- catch the manager timeout exception --------------------
         except ProxyTimeoutException as err_:
             print(f'Task manager timeout @ worker {processID}')
+
             # -------------------- task manager timeout --------------------
-            if currentTime - managerCheckTime > CONFIG.managerTimeLimit:
+            if currentTime - managerCheckTime < CONFIG.managerTimeLimit:
+                time.sleep(5)
+            else:
                 print(f'Task manager closed, worker {processID} exit')
                 exit()
 
-            time.sleep(5)
         except Exception as err_:
             print(f'* Worker {processID} crash @ {currentTimeStr()} : {err_}')
