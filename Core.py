@@ -86,7 +86,7 @@ class TaskManager:
                 taskSn=taskRec['taskSn'], combine=taskRec['combine'], priority=taskRec['priority'],
                 config=TaskConfig(
                     sn=taskRec['taskSn'], combine=taskRec['combine'],
-                    timeout=taskRec['timeout'] or CONFIG.processTimeLimit,
+                    timeout=taskRec['timeout'] or CONFIG.taskTimeout,
                     func=taskRec['func'], callback=taskRec['callback'],
                     args=taskRec['args'], kwargs=taskRec['kwargs'],
                 ),
@@ -116,27 +116,33 @@ class TaskManager:
 
         if combine:
             for taskRec in self.__taskQueue:
-                if taskRec.combine == combine and not taskRec.done and not taskRec.getBy:
+                if taskRec.combine == combine and not taskRec.executor:
                     selectTaskRec = taskRec
                     break
 
         if not selectTaskRec:
             for taskRec in self.__taskQueue:
-                if not taskRec.done and not taskRec.getBy:
+                if not taskRec.done and not taskRec.executor:
                     selectTaskRec = taskRec
                     break
         if not selectTaskRec:
             return 1
 
-        selectTaskRec.getBy = workerName
+        selectTaskRec.executor = workerName
         selectTaskRec.overTime = time.time() + selectTaskRec.config.timeout
 
         print(f'Worker {workerName} get task {selectTaskRec.taskSn}.')
 
+        # self.taskRunning(taskSn=selectTaskRec.taskSn)
+        self.__handler.taskRunning(
+            taskSn=selectTaskRec.taskSn,
+            overTime=int(selectTaskRec.overTime),
+            executorName=selectTaskRec.executor,
+        )
+
         return selectTaskRec.config
 
-    def ping(self, *_, **kwargs):
-        self.redundantKwargs(**kwargs)
+    def ping(self, *_, ):
         print(f'Ping task manager @ {currentTimeStr()}')
         return True
 
@@ -148,37 +154,21 @@ class TaskManager:
         self.__taskQueue.remove(taskState)
         return True
 
-    def taskRunning(self, *_, taskSn: int):
-        self.__handler.taskRunning(taskSn=taskSn)
-
-    def taskSuccess(self, *_, taskSn: int = None, result: any = None, **kwargs):
-        self.redundantKwargs(**kwargs)
+    def taskSuccess(self, *_, taskSn: int = None, result: any = None, ):
         print(f'    Task {taskSn} success, result is {result}.')
-
         self.removeTask(taskSn)
         return self.__handler.taskSuccess(taskSn=taskSn, result=result, )
 
-    def taskError(self, *_, taskSn: int, errorText: str, **kwargs):
-        self.redundantKwargs(**kwargs)
-
+    def taskError(self, *_, taskSn: int, errorText: str, ):
         return self.__handler.taskError(taskSn=taskSn, errorText=errorText)
 
-    def taskTimeout(self, *_, taskSn: int, **kwargs):
-        self.redundantKwargs(**kwargs)
-
+    def taskTimeout(self, *_, taskSn: int, ):
         print(f'    Task {taskSn} timeout.')
         return self.__handler.taskTimeout(taskSn=taskSn)
 
-    def invalidConfig(self, *_, taskSn: int, errorText: str, **kwargs):
-        self.redundantKwargs(**kwargs)
-
+    def invalidConfig(self, *_, taskSn: int, errorText: str, ):
         return self.__handler.taskInvalidConfig(taskSn=taskSn, errorText=errorText, )
 
-    @staticmethod
-    def redundantKwargs(**kwargs):
-        pass
-        if kwargs:
-            print(f'Redundant kwargs {kwargs}.')
 
 
 # -------------------- worker cluster --------------------
@@ -236,7 +226,7 @@ class WorkerCluster:
                 manager=self.__managerCon,
             )
             self.__processPool.append(process)
-            time.sleep(0.1)
+            time.sleep(0.5)
 
     @property
     def pid(self):
@@ -262,7 +252,7 @@ class WorkerCluster:
             if allStop:
                 print(f'Cluster {self.pid} exit @ {currentTimeStr()}.')
                 exit()
-            time.sleep(0.2)
+            time.sleep(0.5)
 
     def run(self):
         runCounter = 0
@@ -284,7 +274,7 @@ class WorkerCluster:
             for subProcess in self.__processPool:
                 subProcess.checkAlive()
 
-            time.sleep(0.5)
+            time.sleep(1)
         self.exit()
 
 
@@ -305,7 +295,7 @@ class WorkerProcess:
         self.__processFunc = processFunc
 
         self.__processRefreshTime = time.time()
-        self.__processOvertime = CONFIG.processTimeLimit
+        self.__processOvertime = CONFIG.taskTimeout
         self.__processPipe, self.__pipe = Pipe()
 
         self.createProcess()
@@ -353,7 +343,7 @@ class WorkerProcess:
 
         currentTime = time.time()
 
-        if currentTime > self.__processOvertime or currentTime > self.__processRefreshTime + CONFIG.processTimeLimit:
+        if currentTime > self.__processOvertime or currentTime > self.__processRefreshTime + CONFIG.taskTimeout:
             self.__process.terminate()
             time.sleep(0.5)
 

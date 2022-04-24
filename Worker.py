@@ -3,7 +3,7 @@ import signal
 
 from multiprocessing import current_process, Event
 
-from .Component import SubProcessConfig, currentTimeStr, CONFIG, proxyFunctionCall, ProxyTimeoutException
+from .Component import SubProcessConfig, currentTimeStr, CONFIG, proxyFunctionCall, ProxyTimeoutException, TaskConfig
 from .Handler import AutoTaskHandler
 
 
@@ -28,6 +28,10 @@ def workerFunc(workerConfig: SubProcessConfig, *args, **kwargs):
     managerCheckTime = time.time()
 
     while True:
+        if workerConfig.stopEvent.is_set() or workerStopEvent.is_set():
+            print(f'Worker {processID} exit @ {currentTimeStr()}.')
+            exit()
+
         currentTime = time.time()
         workerConfig.pipe.send(
             ('alive', currentTime)
@@ -37,13 +41,10 @@ def workerFunc(workerConfig: SubProcessConfig, *args, **kwargs):
             print(f'Worker {processID} life end, exit for next.')
             exit()
         # -------------------- check event status --------------------
-        if workerConfig.stopEvent.is_set() or workerStopEvent.is_set():
-            print(f'Worker {processID} exit @ {currentTimeStr()}.')
-            exit()
 
         try:
             # -------------------- get task config --------------------
-            taskConfig = proxyFunctionCall(
+            taskConfig: TaskConfig = proxyFunctionCall(
                 func=workerConfig.taskManager.getTask,
                 workerName=f'{workerConfig.localName}-{processID}',
             )
@@ -61,20 +62,18 @@ def workerFunc(workerConfig: SubProcessConfig, *args, **kwargs):
                     continue
 
             # -------------------- send alive time --------------------
-            workerConfig.pipe.send(('overtime', currentTime + taskConfig.overTime))
+            workerConfig.pipe.send(('overtime', currentTime + taskConfig.timeout))
 
+            print(f'Process {processID} get task {taskConfig.sn}.')
             try:
                 runConfig = AutoTaskHandler.configUnpack(taskConfig)
             except:
-                runConfig = None
-                counter = 0
+                print(f'  Task  {taskConfig.sn} config invalid.')
                 proxyFunctionCall(
                     workerConfig.taskManager.invalidConfig,
                     taskSn=taskConfig.sn
                 )
                 continue
-
-            print(f'Process {pid} get task {taskConfig.sn}:\n    {taskConfig}')
 
             # -------------------- execute the function --------------------
             try:
@@ -84,12 +83,15 @@ def workerFunc(workerConfig: SubProcessConfig, *args, **kwargs):
                     **runConfig['kwargs']
                 )
             except Exception as err_:
+                print(f'  Task {taskConfig.sn} run error.')
                 proxyFunctionCall(
                     workerConfig.taskManager.taskError,
                     taskSn=taskConfig.sn,
                     errorText=str(err_),
                 )
                 continue
+
+            print(f'  Task {taskConfig.sn} success.')
 
             proxyFunctionCall(
                 workerConfig.taskManager.taskSuccess,

@@ -2,6 +2,8 @@ from time import time as getCurrentTime
 from django.db import models
 from django.db.models import Q
 
+TASK_TIMEOUT = 30
+
 
 class UserField(models.CharField):
     def __init__(self, *args, **kwargs):
@@ -144,7 +146,7 @@ class TaskRec(models.Model):
     kwargs = models.TextField(null=True, blank=False, )  # kwargs
     combine = models.BigIntegerField(null=True)  # combine key
 
-    result = models.BinaryField(null=True, )  # return value
+    result = models.TextField(null=True, blank=False, )  # return value
     callback = models.CharField(
         null=True, blank=False,
         max_length=50, default=None,
@@ -253,32 +255,32 @@ class TaskRec(models.Model):
         self.setStatus(self.StatusChoice.error)
         return True
 
-    def setRunning(self, executorName: str = None):
+    def setRunning(self, overTime: int, executorName: str = None, ):
         if self.status >= self.StatusChoice.success:
             return False
         self.execute += 1
         self.executorName = executorName
         self.startTime = getCurrentTime()
-        self.overTime = self.timeout + getCurrentTime()
+        self.overTime = getCurrentTime() + (self.timeout or TASK_TIMEOUT)
         self.setStatus(self.StatusChoice.running)
         return True
 
-    def setSuccess(self, result: bytes = None):
+    def setSuccess(self, result: str = None):
         if not self.status == self.StatusChoice.running:
             return False
-        if isinstance(result, bytes):
+        if isinstance(result, str):
             self.result = result
         self.endTime = getCurrentTime()
         self.setStatus(self.StatusChoice.success)
         return True
 
-    def setTimeout(self, ):
-        if not self.status == self.StatusChoice.running:
-            return False
-        self.errorText = 'Task run time out.'
-        self.retryTime = getCurrentTime() + self.delay
-        self.setStatus(self.StatusChoice.timeout)
-        return True
+    # def setTimeout(self, ):
+    #     if not self.status == self.StatusChoice.running:
+    #         return False
+    #     self.errorText = 'Task run time out.'
+    #     self.retryTime = getCurrentTime() + self.delay
+    #     self.setStatus(self.StatusChoice.timeout)
+    #     return True
 
 
 TaskRec.objects.filter(

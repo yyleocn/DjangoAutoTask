@@ -92,7 +92,7 @@ class AutoTaskConfig:
     name: str = 'AutoTask'
     poolSize: int = 2
     processLifeTime: int = 600
-    processTimeLimit: int = 30
+    taskTimeout: int = 30
 
 
 CONFIG = AutoTaskConfig(**autoTaskConfig)
@@ -135,11 +135,12 @@ class SubProcessConfig:
 class TaskConfig:
     sn: int
     func: str
+    timeout: int
+
     args: str | None = None
     kwargs: str | None = None
     combine: int | None = None
 
-    timeout: int = CONFIG.processTimeLimit
     callback: str | None = None
 
 
@@ -151,7 +152,7 @@ class TaskState:
 
     combine: int = None
     overTime: int = None
-    getBy: str = None
+    executor: str = None
     done: bool = False
 
 
@@ -171,8 +172,9 @@ def proxyFunctionCall(func: Callable, *args, retry=5, **kwargs):
     retryCounter = 0
     while retryCounter < retry + 1:
         try:
-            return func(*args, **kwargs)._getValue()
-        except:
+            return func(*args, **kwargs)._getvalue()
+        except Exception as err_:
+            print(f'  Proxy function {func.__name__} call error: {err_}')
             retryCounter = retryCounter + 1
             time.sleep(1)
     raise ProxyTimeoutException(f'TaskManager call {func.__name__} fail.')

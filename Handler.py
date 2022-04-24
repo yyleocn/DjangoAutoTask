@@ -67,7 +67,7 @@ class AutoTaskHandler:
         return taskRec.setError(errorText=errorText)
 
     @classmethod
-    def taskTimeout(cls, *_, taskSn: int ):
+    def taskTimeout(cls, *_, taskSn: int):
         return cls.taskError(
             taskSn=taskSn, errorText='Task timeout',
         )
@@ -77,11 +77,11 @@ class AutoTaskHandler:
         # return taskRec.setTimeout(errorText='Task timeout')
 
     @classmethod
-    def taskRunning(cls,*_,taskSn:int):
+    def taskRunning(cls, *_, taskSn: int, overTime: int, executorName: str = None, ):
         taskRec = TaskRec.initTaskRec(taskSn=taskSn)
         if taskRec is None:
             return False
-        return taskRec.setRunning()
+        return taskRec.setRunning(overTime=overTime, executorName=executorName, )
 
     @classmethod
     def configUnpack(cls, config: TaskConfig):
