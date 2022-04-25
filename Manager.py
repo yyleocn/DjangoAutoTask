@@ -79,12 +79,12 @@ class TaskManager:
                 self.removeTask(taskSn=taskState.taskSn)
 
         # --------------- get executing task --------------------
-        executingTask: list[TaskState] = [
+        runningTask: list[TaskState] = [
             taskState for taskState in self.__taskQueue
             if taskState.executor is not None
         ]
         executingTaskSn: set[int] = {
-            taskState.taskSn for taskState in executingTask
+            taskState.taskSn for taskState in runningTask
         }
 
         # --------------- get append task --------------------
@@ -95,7 +95,7 @@ class TaskManager:
 
         # --------------- sort by priority --------------------
         newQueue = [
-                       taskRec for taskRec in [*executingTask, *appendTask, ] if not taskRec.done
+                       taskRec for taskRec in [*runningTask, *appendTask, ] if not taskRec.done
                    ][:CONFIG.queueSize]
 
         # --------------- new queue sort --------------------

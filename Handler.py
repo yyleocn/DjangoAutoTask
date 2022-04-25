@@ -26,12 +26,12 @@ class AutoTaskHandler:
     desObj = des(_desKey, ECB, _desKey, padmode=PAD_NORMAL, pad=' ')
 
     @classmethod
-    def serialize(cls, data: any) -> str:
-        return json.dumps(data)
+    def serialize(cls, data: dict | list | tuple):
+        return data
 
     @classmethod
-    def deserialize(cls, data: str) -> dict | list:
-        return json.loads(data)
+    def deserialize(cls, data) -> dict | list:
+        return data
 
     @classmethod
     def getTaskQueue(cls, *_, taskType: int | None = None, limit: int | None = None) -> list[TaskState]:

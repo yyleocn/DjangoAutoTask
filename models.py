@@ -1,12 +1,18 @@
+import time
 from time import time as getCurrentTime
+from typing import Union
 
 from croniter import croniter
 
-
 from django.db import models
 from django.db.models import Q
+from django.db.models.query import QuerySet
 
-TASK_TIMEOUT = 30
+TASK_TIMEOUT_DEFAULT = 30
+
+
+def stamp2str(stamp: int | float):
+    return time.strftime('%Y-%m-%d_%H:%M:%S', time.localtime(stamp))
 
 
 class UserField(models.CharField):
@@ -32,7 +38,7 @@ class TaskPriorityChoice(models.IntegerChoices):
 
 class TaskTypeChoice(models.IntegerChoices):
     normal = 0
-    scheme = 1
+    scheme = 10
 
 
 class TaskStatusChoice(models.IntegerChoices):
@@ -47,12 +53,31 @@ class TaskStatusChoice(models.IntegerChoices):
     finish = 200
 
 
-class TaskScheme(models.Model):
-    schemeSn = models.AutoField(primary_key=True)  # scheme sn
-
+class TaskPublic(models.Model):
     # -------------------- create --------------------
     createTime = TimeStampField(null=False)
     createUser = UserField(null=False)
+
+    name = models.CharField(max_length=50, null=True, )  # 作业名称
+    tag = models.JSONField(max_length=50, null=True, )  # 标签
+
+    planTime = TimeStampField(null=False)  # 计划时间
+
+    timeout = models.SmallIntegerField(null=True)  # 运行时限
+    delay = models.SmallIntegerField(default=10, null=False, )  # 延迟
+    retry = models.SmallIntegerField(default=0)  # 重试
+
+    class Meta:
+        abstract = True
+
+
+class TaskPackagePublic(models.Model):
+    # -------------------- type --------------------
+    TypeChoice = TaskTypeChoice
+    type = models.SmallIntegerField(
+        choices=TypeChoice.choices,
+        default=TypeChoice.normal,
+    )  # 类型
 
     # -------------------- priority --------------------
     PriorityChoice = TaskPriorityChoice
@@ -61,54 +86,13 @@ class TaskScheme(models.Model):
         default=PriorityChoice.normal,
     )  # 优先级
 
-    # -------------------- next --------------------
-
-    crontabStr = models.CharField(max_length=20, null=False, blank=False)  # crontab 配置
-    interval = models.PositiveIntegerField(null=True)  # 执行间隔
-
-    currentTask = models.ForeignKey(
-        to="TaskRec", null=True, on_delete=models.SET_NULL, related_name='currentScheme'
-    )  # 当前任务
-    nextTime = TimeStampField(null=False, default=0)  # 下个任务时间
-
-    retainTimeLimit = models.PositiveIntegerField(null=False, default=86400 * 7)  # 任务保留时间
-
-    def creatNextTask(self):
-        if getCurrentTime() < self.nextTime:
-            return False
-
-        if self.crontabStr:
-            pass
-        else:
-            if not self.interval:
-                return False
-            self.nextTime = self.nextTime + self.interval
+    class Meta:
+        abstract = True
 
 
-class TaskPackage(models.Model):
+class TaskPackage(TaskPublic, TaskPackagePublic):
     sn = models.BigAutoField(primary_key=True, )
     name = models.CharField(max_length=30, unique=True)  # 名称
-
-    # -------------------- create --------------------
-    createTime = TimeStampField(null=False)
-    createUser = UserField(null=False)
-
-    # -------------------- priority --------------------
-    PriorityChoice = TaskPriorityChoice
-
-    priority = models.SmallIntegerField(
-        choices=PriorityChoice.choices,
-        default=PriorityChoice.normal
-    )  # 优先级
-
-    # -------------------- type --------------------
-    TypeChoice = TaskTypeChoice
-    type = models.SmallIntegerField(
-        choices=TypeChoice.choices,
-        default=TypeChoice.normal,
-    )  # 类型
-
-    planTime = TimeStampField(null=False)  # 计划时间
 
     count = models.PositiveIntegerField(default=0, )  # 总数
     success = models.PositiveIntegerField(default=0, )  # 成功
@@ -118,83 +102,129 @@ class TaskPackage(models.Model):
     finished = models.BooleanField(default=False, )
 
 
+class TaskSchemePublic(models.Model):
+    # -------------------- task config --------------------
+    func = models.CharField(
+        null=False, blank=False,
+        max_length=50,
+    )  # func location string
+    callback = models.CharField(
+        null=True, blank=False,
+        max_length=50, default=None,
+    )  # callback func location string
+
+    args = models.JSONField(null=True, blank=False, )  # args
+    kwargs = models.JSONField(null=True, blank=False, )  # kwargs
+
+    combine = models.BigIntegerField(null=True)  # combine key
+
+    class Meta:
+        abstract = True
+
+
+class TaskScheme(TaskPublic, TaskSchemePublic):
+    schemeSn = models.AutoField(primary_key=True)  # scheme sn
+
+    # -------------------- next --------------------
+
+    cronStr = models.CharField(max_length=20, null=False, blank=False)  # crontab 配置
+    interval = models.PositiveIntegerField(null=True)  # 执行间隔
+
+    currentTask = models.ForeignKey(
+        to="TaskRec", null=True, on_delete=models.SET_NULL, related_name='currentScheme'
+    )  # 当前任务
+
+    planTime = TimeStampField(null=False, default=0)  # 计划时间
+
+    retainTimeLimit = models.PositiveIntegerField(null=False, default=86400 * 7)  # 任务保留时间
+
+    @classmethod
+    def expireScheme(cls) -> QuerySet['TaskScheme']:
+        return cls.objects.filter(planTime__lt=time.time())
+
+    def nextTaskCreate(self):
+        if getCurrentTime() < self.planTime:
+            return False
+
+        if self.cronStr:
+            cron = croniter(self.cronStr, self.planTime)
+            self.planTime = cron.next()
+        else:
+            if not self.interval:
+                return False
+            self.planTime = self.planTime + self.interval
+
+        nextTaskRec = self.taskRecCreate(planTime=self.planTime, scheme=self)
+
+        self.currentTask = nextTaskRec
+
+        self.save()
+
+    def taskRecCreate(self, planTime: int | float, scheme: 'TaskScheme') -> 'TaskRec':
+        planTimeStr = stamp2str(planTime)
+        nextTask = TaskRec(
+            createTime=time.time(),
+            createUser=self.createUser,
+
+            type=TaskRec.TypeChoice.scheme,
+            name=f'{self.name}-{planTimeStr}',
+            tag=self.tag,
+
+            scheme=scheme,
+
+            planTime=planTime,
+            priority=TaskRec.PriorityChoice.scheme,
+
+            func=self.func,
+            args=self.args,
+            kwargs=self.kwargs,
+
+            timeout=self.timeout,
+            delay=self.delay,
+            retry=self.retry,
+
+        )
+        nextTask.save()
+        return nextTask
+
+
 TaskRecQueueFields = (
     'taskSn', 'type', 'priority',
     'func', 'args', 'kwargs', 'combine', 'callback', 'timeout', 'priority',
 )
 
 
-class TaskRec(models.Model):
+class TaskRec(TaskPublic, TaskPackagePublic, TaskSchemePublic):
     taskSn = models.BigAutoField(primary_key=True)  # task sn
 
-    # -------------------- create --------------------
-    createTime = TimeStampField(null=False)
-    createUser = UserField(null=False)
-
     # --------------------  --------------------
-    name = models.CharField(max_length=50, null=True, )  # 作业名称
-    group = models.CharField(max_length=50, null=True, )  # 分组
     package = models.ForeignKey(to=TaskPackage, null=True, on_delete=models.SET_NULL, related_name='taskRec')  # 作业包
     scheme = models.ForeignKey(to=TaskScheme, null=True, on_delete=models.SET_NULL, related_name='taskRec')  # 作业计划
 
-    # -------------------- type --------------------
-    TypeChoice = TaskTypeChoice
-    type = models.SmallIntegerField(
-        null=False,
-        choices=TypeChoice.choices,
-        default=TypeChoice.normal,
-    )  # 类型
-
-    # -------------------- priority --------------------
-    PriorityChoice = TaskPriorityChoice
-
-    priority = models.PositiveSmallIntegerField(
-        null=False,
-        choices=PriorityChoice.choices,
-        default=PriorityChoice.normal,
-    )  # 优先级，小值优先
-
-    # -------------------- task config --------------------
-    func = models.CharField(
-        null=False, blank=False,
-        max_length=50,
-    )  # func location string
-    args = models.TextField(null=True, blank=False, )  # args
-    kwargs = models.TextField(null=True, blank=False, )  # kwargs
-    combine = models.BigIntegerField(null=True)  # combine key
-
-    result = models.TextField(null=True, blank=False, )  # return value
-    callback = models.CharField(
-        null=True, blank=False,
-        max_length=50, default=None,
-    )  # callback func location string
+    result = models.JSONField(null=True, blank=False, )  # return value
 
     # -------------------- status --------------------
     StatusChoice = TaskStatusChoice
-
     status = models.SmallIntegerField(null=False, choices=StatusChoice.choices, default=StatusChoice.normal, )  # 状态
     errorText = models.CharField(max_length=100, null=True, blank=False, default=None)  # 错误信息
 
     # -------------------- time stamp --------------------
     planTime = TimeStampField(null=True)  # 计划时间
+
     retryTime = TimeStampField(null=True)  # 重试时间
+    overTime = TimeStampField(null=True)  # 超时时间
 
     startTime = TimeStampField(null=True)  # 开始时间
-    overTime = TimeStampField(null=True)  # 超时时间
     endTime = TimeStampField(null=True)  # 结束时间
 
-    timeout = models.SmallIntegerField(null=True)  # 运行时限
-    delay = models.SmallIntegerField(default=10, null=False, )  # 延迟
-
     executorName = models.CharField(null=True, max_length=50, )  # process name
-    retry = models.SmallIntegerField(default=0)  # 重试
     execute = models.SmallIntegerField(default=0)  # 执行次数
 
     pause = models.BooleanField(default=False)  # 暂停
     cancel = models.BooleanField(default=False)  # 取消
 
     @classmethod
-    def initTaskRec(cls, taskSn: int):
+    def initTaskRec(cls, taskSn: int) -> Union['TaskRec', None]:
         if not isinstance(taskSn, int):
             return None
         if not cls.objects.filter(taskSn=taskSn).exists():
@@ -210,7 +240,7 @@ class TaskRec(models.Model):
             limit: int = None,
             status: int = None, priority: int = None, taskType: int = None,
             **kwargs
-    ):
+    ) -> QuerySet['TaskRec'] | None:
         currentTime = getCurrentTime()
 
         queryLimit = 1000
@@ -250,6 +280,16 @@ class TaskRec(models.Model):
 
         return taskQuery
 
+    @classmethod
+    def overtimeTask(cls, ):
+        currentTime = getCurrentTime()
+        queryConfig = [
+            Q(status=cls.StatusChoice.running),
+            Q(overTime__lt=currentTime - 5),
+        ]
+
+        return cls.objects.filter(*queryConfig)
+
     def setStatus(self, status: int):
         self.status = status
         self.statusTime = getCurrentTime()
@@ -279,7 +319,7 @@ class TaskRec(models.Model):
         self.execute += 1
         self.executorName = executorName
         self.startTime = getCurrentTime()
-        self.overTime = getCurrentTime() + (self.timeout or TASK_TIMEOUT)
+        self.overTime = getCurrentTime() + (self.timeout or TASK_TIMEOUT_DEFAULT)
         self.setStatus(self.StatusChoice.running)
         return True
 
