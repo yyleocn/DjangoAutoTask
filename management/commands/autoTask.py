@@ -4,7 +4,8 @@ import time
 from django.core.management.base import BaseCommand, no_translations
 
 from ...Component import currentTimeStr, CONFIG
-from ...Core import (ManagerServer, ManagerAdmin, ManagerClient, WorkerCluster, )
+from ...Manager import (ManagerServer, ManagerAdmin, ManagerClient, )
+from ...Cluster import WorkerCluster
 from ...Worker import workerFunc
 
 

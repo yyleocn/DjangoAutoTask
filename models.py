@@ -1,4 +1,8 @@
 from time import time as getCurrentTime
+
+from croniter import croniter
+
+
 from django.db import models
 from django.db.models import Q
 
@@ -62,10 +66,23 @@ class TaskScheme(models.Model):
     crontabStr = models.CharField(max_length=20, null=False, blank=False)  # crontab 配置
     interval = models.PositiveIntegerField(null=True)  # 执行间隔
 
-    currentTaskID = models.PositiveBigIntegerField(null=True)  # 当前任务 ID
+    currentTask = models.ForeignKey(
+        to="TaskRec", null=True, on_delete=models.SET_NULL, related_name='currentScheme'
+    )  # 当前任务
     nextTime = TimeStampField(null=False, default=0)  # 下个任务时间
 
     retainTimeLimit = models.PositiveIntegerField(null=False, default=86400 * 7)  # 任务保留时间
+
+    def creatNextTask(self):
+        if getCurrentTime() < self.nextTime:
+            return False
+
+        if self.crontabStr:
+            pass
+        else:
+            if not self.interval:
+                return False
+            self.nextTime = self.nextTime + self.interval
 
 
 class TaskPackage(models.Model):
