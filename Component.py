@@ -126,7 +126,7 @@ class ReadonlyDict(dict):
 class SubProcessConfig:
     sn: int
     taskManager: BaseManager
-    exitEvent: Event
+    shutdownEvent: Event
     pipe: Connection
     localName: str
 

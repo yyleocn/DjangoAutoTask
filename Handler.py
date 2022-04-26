@@ -17,7 +17,7 @@ except AppRegistryNotReady:
 
 from .Component import CONFIG, TaskConfig, importFunction, TaskState
 
-from .models import TaskRec, TaskRecQueueFields
+from .models import TaskRec, TaskRecQueueFields, TaskScheme
 
 
 class AutoTaskHandler:
@@ -25,16 +25,19 @@ class AutoTaskHandler:
 
     desObj = des(_desKey, ECB, _desKey, padmode=PAD_NORMAL, pad=' ')
 
+    # -------------------- serialize --------------------
     @classmethod
-    def serialize(cls, data: dict | list | tuple):
-        return data
+    def serialize(cls, data: dict | list | tuple) -> str:
+        return json.dumps(data)
 
     @classmethod
-    def deserialize(cls, data) -> dict | list:
-        return data
+    def deserialize(cls, dataStr) -> dict | list:
+        return json.loads(dataStr)
 
+    # -------------------- TaskRec --------------------
     @classmethod
     def getTaskQueue(cls, *_, taskType: int | None = None, limit: int | None = None) -> list[TaskState]:
+
         queryRes = TaskRec.getTaskQueue(taskType=taskType, limit=limit).values(*TaskRecQueueFields)
         return [
             TaskState(
@@ -48,6 +51,7 @@ class AutoTaskHandler:
             ) for taskRec in queryRes
         ]
 
+    # -------------------- TaskRec Status --------------------
     @classmethod
     def setTaskStatus(cls, *_, taskSn, status: int, ):
         taskRec = TaskRec.initTaskRec(taskSn=taskSn)
@@ -94,6 +98,7 @@ class AutoTaskHandler:
             executorName=executorName,
         )
 
+    # -------------------- TaskConfig --------------------
     @classmethod
     def configUnpack(cls, config: TaskConfig):
         runConfig = {
@@ -125,3 +130,9 @@ class AutoTaskHandler:
             raise Exception('Invalid task kwargs.')
 
         return runConfig
+
+    @classmethod
+    def taskSchemeAuto(cls):
+        expireScheme = TaskScheme.expireScheme()
+        for scheme in expireScheme:
+            scheme.nextTaskCreate()

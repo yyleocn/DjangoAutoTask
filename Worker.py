@@ -13,7 +13,7 @@ def workerFunc(workerConfig: SubProcessConfig, *args, **kwargs):
     workerStopEvent = Event()
     workerStopEvent.clear()
 
-    processID = f'{workerConfig.sn}|{pid}'
+    processID = f'{workerConfig.sn}-{pid}'
     workerConfig.taskManager.methodBound()
 
     print(f'* Worker {processID} start @ {currentTimeStr()}')
@@ -29,7 +29,7 @@ def workerFunc(workerConfig: SubProcessConfig, *args, **kwargs):
 
     while True:
         # -------------------- exit event check --------------------
-        if workerConfig.exitEvent.is_set() or workerStopEvent.is_set():
+        if workerConfig.shutdownEvent.is_set() or workerStopEvent.is_set():
             print(f'Worker {processID} exit @ {currentTimeStr()}')
             exit()
 
@@ -54,13 +54,13 @@ def workerFunc(workerConfig: SubProcessConfig, *args, **kwargs):
             managerCheckTime = currentTime
 
             match taskConfig:
-                case -1:
-                    print(f'Task manager busy, worker {processID} ----------')
-                    time.sleep(0.2)
-                    continue
                 case 1:
-                    print(f'No task in manager, worker {processID} is waiting')
+                    # no task in manager waiting for a long time.
                     time.sleep(5)
+                    continue
+                case -1:
+                    # task manager is busy, waiting for a short time.
+                    time.sleep(0.5)
                     continue
 
             # -------------------- config check & unpack --------------------

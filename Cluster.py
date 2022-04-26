@@ -15,16 +15,18 @@ class WorkerProcess:
             self, *_,
             sn: int,
             manager: BaseManager,
-            exitEvent,
+            shutdownEvent,
             processFunc,
+            localName: str,
     ):
         self.__sn = sn
         self.__taskManager = manager
-        self.__exitEvent = exitEvent
+        self.__shutdownEvent = shutdownEvent
         self.__processFunc = processFunc
 
-        self.__processOvertime = None
+        self.__processOvertime: int = time.time() + CONFIG.taskTimeout * 2
         self.__processPipe, self.__pipe = Pipe()
+        self.__localName: str = localName
 
         self.createProcess()
 
@@ -40,10 +42,10 @@ class WorkerProcess:
                 args=(
                     SubProcessConfig(
                         sn=self.__sn,
-                        exitEvent=self.__exitEvent,
+                        shutdownEvent=self.__shutdownEvent,
                         taskManager=self.__taskManager,
                         pipe=self.__processPipe,
-                        localName=CONFIG.name,
+                        localName=self.__localName,
                     ),
                 ),
             )
@@ -59,7 +61,7 @@ class WorkerProcess:
         return self.__process.is_alive()
 
     def checkProcess(self):
-        if not self.isAlive() and not self.__exitEvent.is_set():
+        if not self.isAlive() and not self.__shutdownEvent.is_set():
             self.createProcess()
 
         while self.__pipe.poll():
@@ -97,54 +99,68 @@ class WorkerCluster:
     def __init__(
             self, *_,
             managerCon: BaseManager = None,
-            poolSize=CONFIG.poolSize,
+            localName: str = CONFIG.name,
+            poolSize: int = CONFIG.poolSize,
             processFunc: Callable,
     ):
         if managerCon is None:
             raise Exception('Invalid task manager')
 
         self.__processPool: list[WorkerProcess] = []
-        self.__poolSize = poolSize
+        self.__poolSize: int = poolSize
+        self.__localName: str = localName
 
-        self.__exitEvent = Event()
-        self.__exitEvent.clear()
+        self.__shutdownEvent = Event()
+        self.__shutdownEvent.clear()
+
+        self.__managerStatus = 0
+        self.__shutdown = False
+        # set the exitEvent() when managerStatus < 0 or exit = True
+
         self.__managerCon: BaseManager = managerCon
         self.__processFunc = processFunc
 
         self.__processCounter = 0
 
-        def exitSignalHandler(*_, ):
-            self.__exitEvent.set()
-            print(f'Cluster {self.pid} receive stop signal @ {currentTimeStr()}')
+        def shutdownHandler(*_, ):
+            print(f'Cluster {self.pid} receive shutdown signal @ {currentTimeStr()}')
+            self.shutdown()
 
-        signal.signal(signal.SIGINT, exitSignalHandler)
-        signal.signal(signal.SIGTERM, exitSignalHandler)
+        for sig in [
+            signal.SIGINT,
+            # signal.SIGHUP,
+            signal.SIGTERM,
+            signal.SIGILL,
+        ]:
+            signal.signal(sig, shutdownHandler)
 
         initTime = time.time()
         while True:
-            if self.__exitEvent.is_set():
+            if self.__shutdownEvent.is_set():
                 break
             try:
                 self.__managerCon.connect()
                 break
             except Exception as err_:
                 print(f'Cluster {self.pid} connect task manager fail, waiting')
-                time.sleep(2)
+                time.sleep(5)
 
         print(f'Cluster {self.pid} start to create process, pool size is {self.__poolSize}')
 
     def appendProcess(self):
-        if self.__exitEvent.is_set():
+        if not self.isRunning:
             return None
-        if len(self.__processPool) == self.__poolSize:
+
+        if len(self.__processPool) >= self.__poolSize:
             return None
         while len(self.__processPool) < self.__poolSize:
             self.__processCounter += 1
             process = WorkerProcess(
                 sn=self.__processCounter,
-                exitEvent=self.__exitEvent,
+                shutdownEvent=self.__shutdownEvent,
                 processFunc=self.__processFunc,
                 manager=self.__managerCon,
+                localName=self.__localName,
             )
             self.__processPool.append(process)
 
@@ -153,43 +169,71 @@ class WorkerCluster:
         return current_process().pid
 
     @property
-    def processPid(self):
+    def workerPid(self):
         return [
-            process.pid for process in self.__processPool
+            worker.pid for worker in self.__processPool if worker.isAlive()
         ]
 
     @property
-    def exitEvent(self):
-        return self.__exitEvent
+    def isRunning(self):
+        if self.__shutdown or self.__managerStatus < 0:
+            return False
+        return True
 
     def run(self):
-        runCounter = 0
+        managerCheckTime = 0
         while True:
-            runCounter += 1
-            for subProcess in self.__processPool:
-                subProcess.checkProcess()
+            if not self.isRunning:
+                self.__shutdownEvent.set()
+            else:
+                self.__shutdownEvent.clear()
 
-            if self.__exitEvent.is_set():
-                allStop = True
-                for subProcess in self.__processPool:
-                    if subProcess.isAlive():
-                        allStop = False
-                if allStop:
-                    print(f'Cluster {self.pid} exit @ {currentTimeStr()}')
-                    return None
-                time.sleep(0.5)
-                continue
+            if self.__shutdown:
+                break
 
-            if runCounter > 20:
+            if time.time() - managerCheckTime > 10:
                 try:
-                    pingRes = self.__managerCon.ping()._getvalue()
-                    runCounter = 0
+                    pingRes = self.__managerCon.ping(
+                        {
+                            'name': self.__localName,
+                            'pid': self.workerPid,
+                            'status': 'running' if self.isRunning else 'shutdown',
+                        }
+                    )._getvalue()
+                    self.__managerStatus = pingRes
+                    managerCheckTime = time.time()
                 except Exception as err_:
                     print(f'Cluster {self.pid} connect task manager fail: {err_}')
                     time.sleep(2)
                     continue
 
+            for subProcess in self.__processPool:
+                subProcess.checkProcess()
+
             self.appendProcess()
+            time.sleep(1)
+
+        exit()
+
+    @property
+    def exitEvent(self):
+        return self.__shutdownEvent
+
+    def shutdown(self):
+        self.__shutdownEvent.set()  # 激活关闭事件
+
+        while True:
+            allStop = True
+            for subProcess in self.__processPool:
+                subProcess.checkProcess()
+                if subProcess.isAlive():
+                    allStop = False
+
+            if allStop:
+                print(f'Cluster {self.pid} ready to exit @ {currentTimeStr()}')
+                self.__shutdown = True
+
+                return None
 
             time.sleep(0.5)
 

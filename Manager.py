@@ -1,6 +1,7 @@
 import time
 import signal
 from operator import attrgetter
+
 from multiprocessing import (current_process, )
 from multiprocessing.managers import BaseManager
 
@@ -27,7 +28,9 @@ class TaskManager:
         self.__taskQueue: list[TaskState] = []
         self.__taskDict: dict[int, TaskState] = {}
         self.__exit: bool = False
+        self.__shutdown: bool = False
         self.__pid = current_process().pid
+        self.__clusterDict = {}
 
         print(f'Task manager {self.pid} init')
 
@@ -43,22 +46,35 @@ class TaskManager:
         else:
             self.__handler = AutoTaskHandler()
 
-        def exitSignalHandler(*_, ):
+        def shutdownHandler(*_, ):
             print(f'Manager {self.pid} receive stop signal @ {currentTimeStr()}')
             self.exit()
 
-        signal.signal(signal.SIGINT, exitSignalHandler)
-        signal.signal(signal.SIGTERM, exitSignalHandler)
+        for sig in [
+            signal.SIGINT,
+            # signal.SIGHUP,
+            signal.SIGTERM,
+            signal.SIGILL,
+        ]:
+            signal.signal(sig, shutdownHandler)
 
-        self.__taskSnCounter = 1000000
+    def shutdownManager(self):
+        self.__shutdown = True
+        return 'The TaskManger is set to shutdown.'
 
     @property
     def pid(self):
         return self.__pid
 
+    @property
+    def isRunning(self):
+        if self.__exit or self.__shutdown:
+            return False
+        return True
+
     def exit(self):
         self.__exit = True
-        time.sleep(10)
+        time.sleep(5)
         exit()
 
     def refreshTaskQueue(self):
@@ -112,7 +128,7 @@ class TaskManager:
 
     def getTask(self, *args, workerName: str = None, combine: int = None, **kwargs) -> TaskConfig | int:
         # --------------- queue lock or exit return -1 --------------------
-        if self.__taskQueueLock or self.__exit:
+        if self.__taskQueueLock or not self.isRunning:
             return -1
 
         selectTask = None
@@ -150,10 +166,6 @@ class TaskManager:
 
         return selectTask.config
 
-    def ping(self, *_, ):
-        print(f'Ping task manager @ {currentTimeStr()}')
-        return True
-
     def removeTask(self, taskSn: int):
         taskState = self.__taskDict.get(taskSn)
         if taskState is None:
@@ -178,6 +190,33 @@ class TaskManager:
 
     def invalidConfig(self, *_, taskSn: int, errorText: str, ):
         return self.__handler.taskInvalidConfig(taskSn=taskSn, errorText=errorText, )
+
+    def ping(self, status, *_, ):
+        if isinstance(status, dict):
+            clusterName = status.get('name')
+            clusterPid = status.get('pid')
+            clusterStatus = status.get('status')
+            print(f'Cluster {clusterName} ping task manager')
+            self.__clusterDict[clusterName] = status
+
+        else:
+            print('Invalid ping message.')
+        if not self.isRunning:
+            return -1
+        return 0
+
+    def status(self):
+        return {
+            'name': CONFIG.name,
+            'status': 'running' if self.isRunning else 'shutdown',
+            'cluster': self.__clusterDict.values(),
+            'runningTask': [
+                {
+                    'taskSn': taskState.taskSn,
+                    'executor': taskState.executor,
+                } for taskState in self.__taskQueue if taskState.executor
+            ],
+        }
 
 
 # -------------------- sync manager --------------------

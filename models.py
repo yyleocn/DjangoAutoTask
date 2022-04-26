@@ -28,32 +28,7 @@ class TimeStampField(models.BigIntegerField):
     pass
 
 
-class TaskPriorityChoice(models.IntegerChoices):
-    max = 10
-    scheme = 50
-    normal = 100
-    idle = 200
-    pause = 1000
-
-
-class TaskTypeChoice(models.IntegerChoices):
-    normal = 0
-    scheme = 10
-
-
-class TaskStatusChoice(models.IntegerChoices):
-    invalid_config = -999
-    callback_error = -200
-    fail = -100
-    error = -50
-    timeout = -30
-    normal = 1
-    running = 10
-    success = 100
-    finish = 200
-
-
-class TaskPublic(models.Model):
+class TaskModelPublic(models.Model):
     # -------------------- create --------------------
     createTime = TimeStampField(null=False)
     createUser = UserField(null=False)
@@ -67,42 +42,30 @@ class TaskPublic(models.Model):
     delay = models.SmallIntegerField(default=10, null=False, )  # 延迟
     retry = models.SmallIntegerField(default=0)  # 重试
 
-    class Meta:
-        abstract = True
-
-
-class TaskPackagePublic(models.Model):
     # -------------------- type --------------------
-    TypeChoice = TaskTypeChoice
+    class TypeChoice(models.IntegerChoices):
+        normal = 0
+        scheme = 10
+
     type = models.SmallIntegerField(
         choices=TypeChoice.choices,
         default=TypeChoice.normal,
     )  # 类型
 
     # -------------------- priority --------------------
-    PriorityChoice = TaskPriorityChoice
+
+    class PriorityChoice(models.IntegerChoices):
+        max = 10
+        scheme = 50
+        normal = 100
+        idle = 200
+        pause = 1000
+
     priority = models.SmallIntegerField(
         choices=PriorityChoice.choices,
         default=PriorityChoice.normal,
     )  # 优先级
 
-    class Meta:
-        abstract = True
-
-
-class TaskPackage(TaskPublic, TaskPackagePublic):
-    sn = models.BigAutoField(primary_key=True, )
-    name = models.CharField(max_length=30, unique=True)  # 名称
-
-    count = models.PositiveIntegerField(default=0, )  # 总数
-    success = models.PositiveIntegerField(default=0, )  # 成功
-    fail = models.PositiveIntegerField(default=0, )  # 失败
-    running = models.PositiveIntegerField(default=0, )  # running
-
-    finished = models.BooleanField(default=False, )
-
-
-class TaskSchemePublic(models.Model):
     # -------------------- task config --------------------
     func = models.CharField(
         null=False, blank=False,
@@ -113,22 +76,45 @@ class TaskSchemePublic(models.Model):
         max_length=50, default=None,
     )  # callback func location string
 
-    args = models.JSONField(null=True, blank=False, )  # args
-    kwargs = models.JSONField(null=True, blank=False, )  # kwargs
-
+    args = models.TextField(null=True, blank=False, )  # args
+    kwargs = models.TextField(null=True, blank=False, )  # kwargs
     combine = models.BigIntegerField(null=True)  # combine key
+
+    result = models.TextField(null=True, blank=False, )  # return value
+
+    pause = models.BooleanField(default=False)  # 暂停
+    cancel = models.BooleanField(default=False)  # 取消
 
     class Meta:
         abstract = True
 
 
-class TaskScheme(TaskPublic, TaskSchemePublic):
+class TaskPackage(TaskModelPublic):
+    sn = models.BigAutoField(primary_key=True, )
+    name = models.CharField(max_length=30, unique=True)  # 名称
+
+    count = models.PositiveIntegerField(default=0, )  # 总数
+    success = models.PositiveIntegerField(default=0, )  # 成功
+    fail = models.PositiveIntegerField(default=0, )  # 失败
+    running = models.PositiveIntegerField(default=0, )  # running
+
+    finished = models.BooleanField(default=False, )
+
+    func = None
+    args = None
+    kwargs = None
+    callback = None
+    combine = None
+    result = None
+
+
+class TaskScheme(TaskModelPublic):
     schemeSn = models.AutoField(primary_key=True)  # scheme sn
 
     # -------------------- next --------------------
 
     cronStr = models.CharField(max_length=20, null=False, blank=False)  # crontab 配置
-    interval = models.PositiveIntegerField(null=True)  # 执行间隔
+    interval = models.PositiveIntegerField(default=86400)  # 执行间隔
 
     currentTask = models.ForeignKey(
         to="TaskRec", null=True, on_delete=models.SET_NULL, related_name='currentScheme'
@@ -136,23 +122,34 @@ class TaskScheme(TaskPublic, TaskSchemePublic):
 
     planTime = TimeStampField(null=False, default=0)  # 计划时间
 
-    retainTimeLimit = models.PositiveIntegerField(null=False, default=86400 * 7)  # 任务保留时间
+    retainDuration = models.PositiveIntegerField(null=False, default=86400 * 7)  # 任务保留时间
+
+    priority = None
+    result = None
 
     @classmethod
     def expireScheme(cls) -> QuerySet['TaskScheme']:
-        return cls.objects.filter(planTime__lt=time.time())
+        return cls.objects.filter(
+            planTime__lt=getCurrentTime(),
+            cancel=False,
+            pause=False,
+        )
 
     def nextTaskCreate(self):
-        if getCurrentTime() < self.planTime:
+        currentTime = getCurrentTime()
+        if currentTime < self.planTime:
             return False
 
         if self.cronStr:
-            cron = croniter(self.cronStr, self.planTime)
+            planTime = self.planTime
+            cron = croniter(self.cronStr, currentTime)
             self.planTime = cron.next()
         else:
             if not self.interval:
                 return False
             self.planTime = self.planTime + self.interval
+
+        print(f'  TaskScheme {self.schemeSn} create next task.')
 
         nextTaskRec = self.taskRecCreate(planTime=self.planTime, scheme=self)
 
@@ -194,17 +191,25 @@ TaskRecQueueFields = (
 )
 
 
-class TaskRec(TaskPublic, TaskPackagePublic, TaskSchemePublic):
+class TaskRec(TaskModelPublic):
     taskSn = models.BigAutoField(primary_key=True)  # task sn
 
     # --------------------  --------------------
     package = models.ForeignKey(to=TaskPackage, null=True, on_delete=models.SET_NULL, related_name='taskRec')  # 作业包
     scheme = models.ForeignKey(to=TaskScheme, null=True, on_delete=models.SET_NULL, related_name='taskRec')  # 作业计划
 
-    result = models.JSONField(null=True, blank=False, )  # return value
-
     # -------------------- status --------------------
-    StatusChoice = TaskStatusChoice
+    class StatusChoice(models.IntegerChoices):
+        invalid_config = -999
+        callback_error = -200
+        fail = -100
+        error = -50
+        timeout = -30
+        normal = 1
+        running = 10
+        success = 100
+        finish = 200
+
     status = models.SmallIntegerField(null=False, choices=StatusChoice.choices, default=StatusChoice.normal, )  # 状态
     errorText = models.CharField(max_length=100, null=True, blank=False, default=None)  # 错误信息
 
@@ -219,9 +224,6 @@ class TaskRec(TaskPublic, TaskPackagePublic, TaskSchemePublic):
 
     executorName = models.CharField(null=True, max_length=50, )  # process name
     execute = models.SmallIntegerField(default=0)  # 执行次数
-
-    pause = models.BooleanField(default=False)  # 暂停
-    cancel = models.BooleanField(default=False)  # 取消
 
     @classmethod
     def initTaskRec(cls, taskSn: int) -> Union['TaskRec', None]:
@@ -240,7 +242,7 @@ class TaskRec(TaskPublic, TaskPackagePublic, TaskSchemePublic):
             limit: int = None,
             status: int = None, priority: int = None, taskType: int = None,
             **kwargs
-    ) -> QuerySet['TaskRec'] | None:
+    ) -> QuerySet['TaskRec']:
         currentTime = getCurrentTime()
 
         queryLimit = 1000
@@ -271,17 +273,10 @@ class TaskRec(TaskPublic, TaskPackagePublic, TaskSchemePublic):
             *queryConfig,
         ).order_by('priority', 'startTime', 'createTime')[:queryLimit]
 
-        try:
-
-            if taskQuery.count() < 1:
-                return None
-        except BaseException as err_:
-            return err_
-
         return taskQuery
 
     @classmethod
-    def overtimeTask(cls, ):
+    def overtimeTask(cls, ) -> QuerySet['TaskRec']:
         currentTime = getCurrentTime()
         queryConfig = [
             Q(status=cls.StatusChoice.running),
@@ -295,25 +290,25 @@ class TaskRec(TaskPublic, TaskPackagePublic, TaskSchemePublic):
         self.statusTime = getCurrentTime()
         self.save()
 
-    def invalidConfig(self, errorText: str):
+    def invalidConfig(self, errorText: str) -> bool:
         if self.status == self.StatusChoice.running:
             return False
         self.errorText = errorText[:100]
         self.setStatus(self.StatusChoice.invalid_config)
         return True
 
-    def setError(self, errorText: str, errorStatus=StatusChoice.error):
+    def setError(self, errorText: str, errorStatus=StatusChoice.error) -> bool:
         if not self.status == self.StatusChoice.running:
             return False
         self.errorText = errorText[:100]
         if self.execute >= self.retry:
             self.setStatus(self.StatusChoice.fail)
-            return
+            return True
         self.retryTime = getCurrentTime() + self.delay
         self.setStatus(errorStatus)
         return True
 
-    def setRunning(self, overTime: int, executorName: str = None, ):
+    def setRunning(self, overTime: int, executorName: str = None, ) -> bool:
         if self.status >= self.StatusChoice.success:
             return False
         self.execute += 1
@@ -323,7 +318,7 @@ class TaskRec(TaskPublic, TaskPackagePublic, TaskSchemePublic):
         self.setStatus(self.StatusChoice.running)
         return True
 
-    def setSuccess(self, result: str = None):
+    def setSuccess(self, result: str = None) -> bool:
         if not self.status == self.StatusChoice.running:
             return False
         if isinstance(result, str):
