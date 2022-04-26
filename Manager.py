@@ -66,7 +66,6 @@ class TaskManager:
     def pid(self):
         return self.__pid
 
-    @property
     def isRunning(self):
         if self.__exit or self.__shutdown:
             return False
@@ -128,7 +127,7 @@ class TaskManager:
 
     def getTask(self, *args, workerName: str = None, combine: int = None, **kwargs) -> TaskConfig | int:
         # --------------- queue lock or exit return -1 --------------------
-        if self.__taskQueueLock or not self.isRunning:
+        if self.__taskQueueLock or not self.isRunning():
             return -1
 
         selectTask = None
@@ -201,14 +200,14 @@ class TaskManager:
 
         else:
             print('Invalid ping message.')
-        if not self.isRunning:
+        if not self.isRunning():
             return -1
         return 0
 
     def status(self):
         return {
             'name': CONFIG.name,
-            'status': 'running' if self.isRunning else 'shutdown',
+            'status': 'running' if self.isRunning() else 'shutdown',
             'cluster': self.__clusterDict.values(),
             'runningTask': [
                 {

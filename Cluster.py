@@ -148,7 +148,7 @@ class WorkerCluster:
         print(f'Cluster {self.pid} start to create process, pool size is {self.__poolSize}')
 
     def appendProcess(self):
-        if not self.isRunning:
+        if not self.running:
             return None
 
         if len(self.__processPool) >= self.__poolSize:
@@ -175,7 +175,7 @@ class WorkerCluster:
         ]
 
     @property
-    def isRunning(self):
+    def running(self):
         if self.__shutdown or self.__managerStatus < 0:
             return False
         return True
@@ -183,7 +183,7 @@ class WorkerCluster:
     def run(self):
         managerCheckTime = 0
         while True:
-            if not self.isRunning:
+            if not self.running:
                 self.__shutdownEvent.set()
             else:
                 self.__shutdownEvent.clear()
@@ -197,7 +197,7 @@ class WorkerCluster:
                         {
                             'name': self.__localName,
                             'pid': self.workerPid,
-                            'status': 'running' if self.isRunning else 'shutdown',
+                            'status': 'running' if self.running else 'shutdown',
                         }
                     )._getvalue()
                     self.__managerStatus = pingRes

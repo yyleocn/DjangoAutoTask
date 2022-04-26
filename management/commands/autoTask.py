@@ -56,7 +56,7 @@ class Command(BaseCommand):
 
         print(f'Task manager start @ {currentTimeStr()}')
         while True:
-            isRunning = managerAdmin.isRunning()._gevalue()
+            isRunning = managerAdmin.isRunning()._getvalue()
             if isRunning:
                 AutoTaskHandler.taskSchemeAuto()
             managerAdmin.refreshTaskQueue()._getvalue()
@@ -94,14 +94,15 @@ class Command(BaseCommand):
             print(managerStatus)
             return
 
-        print(f'''\n---------------- {managerStatus.get('name', '******')}: {managerStatus.get('status', '******')} ''')
-        print(f'''---------------- {'Cluster'.center(20)} ----------------''')
+        print(f'''-----------------------------------------------------------''')
+        print(f'''>>>>> {managerStatus.get('name', '******')}: {managerStatus.get('status', '******')} ''')
+        print(f'''----------   Cluster     --------------------''')
         for cluster in managerStatus.get('cluster', []):
-            print(f'''-- {cluster.get('name'):>10}:{cluster.get('pid', [])}''')
+            print(f'''> {cluster.get('name'):>10}:{cluster.get('pid', [])}''')
 
-        print(f'''---------------- {'running task'.center(20)} ----------------''')
+        print(f'''---------- running task  --------------------''')
         for taskRec in managerStatus.get('runningTask', []):
-            print(f'''--   {taskRec.get('taskSn')}:{taskRec.get('executor')}''')
+            print(f'''> {taskRec.get('taskSn')}:{taskRec.get('executor')}''')
 
     @no_translations
     def handle(self, *args, **options):
