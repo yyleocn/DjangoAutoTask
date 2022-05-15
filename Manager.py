@@ -88,7 +88,10 @@ class TaskManager:
                 self.taskTimeout(taskSn=taskState.taskSn)
                 self.removeTask(taskSn=taskState.taskSn)
 
-        # --------------- get executing task --------------------
+        if not self.isRunning():
+            return
+
+            # --------------- get executing task --------------------
         runningTask: list[TaskState] = [
             taskState for taskState in self.__taskQueue
             if taskState.executor is not None

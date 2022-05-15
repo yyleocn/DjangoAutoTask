@@ -66,7 +66,8 @@ class Command(BaseCommand):
                 isRunning = managerAdmin.isRunning()._getvalue()
                 if isRunning:
                     AutoTaskHandler.taskSchemeAuto()
-                    managerAdmin.refreshTaskQueue()._getvalue()
+                managerAdmin.refreshTaskQueue()._getvalue()
+                checkTime = time.time()
             time.sleep(0.2)
 
     @no_translations
