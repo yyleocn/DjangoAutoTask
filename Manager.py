@@ -50,12 +50,7 @@ class TaskManager:
             print(f'Manager {self.pid} receive stop signal @ {currentTimeStr()}')
             self.exit()
 
-        for sig in [
-            signal.SIGINT,
-            # signal.SIGHUP,
-            signal.SIGTERM,
-            signal.SIGILL,
-        ]:
+        for sig in (signal.SIGINT, signal.SIGTERM, signal.SIGILL,):
             signal.signal(sig, shutdownHandler)
 
     def shutdownManager(self):
@@ -98,6 +93,7 @@ class TaskManager:
             taskState for taskState in self.__taskQueue
             if taskState.executor is not None
         ]
+
         executingTaskSn: set[int] = {
             taskState.taskSn for taskState in runningTask
         }
@@ -233,12 +229,12 @@ class ManagerServer(BaseManager):
             return
 
         taskManager = TaskManager()
-        for prop_ in taskManager.__dir__():
-            if prop_[0] == '_':
+        for name_ in taskManager.__dir__():
+            if name_[0] == '_':
                 continue
-            func_ = getattr(taskManager, prop_)
+            func_ = getattr(taskManager, name_)
             if callable(func_):
-                cls.register(prop_, func_, )
+                cls.register(name_, func_, )
 
         cls.__methodBounded = True
 
@@ -255,13 +251,11 @@ class ManagerAdmin(BaseManager):
         if cls.__methodBounded:
             return
 
-        taskManager = TaskManager()
-        for prop_ in taskManager.__dir__():
-            if prop_[0] == '_':
+        for name_, prop_ in TaskManager.__dict__.items():
+            if name_[0] == '_':
                 continue
-            func_ = getattr(taskManager, prop_)
-            if callable(func_):
-                cls.register(prop_, )
+            if callable(prop_):
+                cls.register(name_, )
 
         cls.__methodBounded = True
 

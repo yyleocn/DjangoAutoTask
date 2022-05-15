@@ -36,7 +36,7 @@ class TaskModelPublic(models.Model):
     name = models.CharField(max_length=50, null=True, )  # 作业名称
     tag = models.JSONField(max_length=50, null=True, )  # 标签
 
-    planTime = TimeStampField(null=False)  # 计划时间
+    planTime = TimeStampField(null=False, default=0)  # 计划时间
 
     timeout = models.SmallIntegerField(null=True)  # 运行时限
     delay = models.SmallIntegerField(default=10, null=False, )  # 延迟
@@ -91,7 +91,6 @@ class TaskModelPublic(models.Model):
 
 class TaskPackage(TaskModelPublic):
     sn = models.BigAutoField(primary_key=True, )
-    name = models.CharField(max_length=30, unique=True)  # 名称
 
     count = models.PositiveIntegerField(default=0, )  # 总数
     success = models.PositiveIntegerField(default=0, )  # 成功
@@ -119,8 +118,6 @@ class TaskScheme(TaskModelPublic):
     currentTask = models.ForeignKey(
         to="TaskRec", null=True, on_delete=models.SET_NULL, related_name='currentScheme'
     )  # 当前任务
-
-    planTime = TimeStampField(null=False, default=0)  # 计划时间
 
     retainDuration = models.PositiveIntegerField(null=False, default=86400 * 7)  # 任务保留时间
 
@@ -214,7 +211,6 @@ class TaskRec(TaskModelPublic):
     errorText = models.CharField(max_length=100, null=True, blank=False, default=None)  # 错误信息
 
     # -------------------- time stamp --------------------
-    planTime = TimeStampField(null=True)  # 计划时间
 
     retryTime = TimeStampField(null=True)  # 重试时间
     overTime = TimeStampField(null=True)  # 超时时间
@@ -254,7 +250,7 @@ class TaskRec(TaskModelPublic):
                 status__gte=cls.StatusChoice.error, status__lt=cls.StatusChoice.success,
             ),
             ~(Q(status=cls.StatusChoice.error) & Q(retry__gt=currentTime)),
-            Q(planTime__isnull=True) | Q(planTime__lte=currentTime),
+            Q(planTime__lte=currentTime),
             Q(retryTime__isnull=True) | Q(retryTime__lte=currentTime),
             Q(pause=False),
             Q(cancel=False),

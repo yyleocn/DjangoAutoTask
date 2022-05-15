@@ -22,8 +22,8 @@ def workerFunc(workerConfig: SubProcessConfig, *args, **kwargs):
         print(f'Worker {processID} receive stop signal @ {currentTimeStr()}')
         workerStopEvent.set()
 
-    signal.signal(signal.SIGINT, stopSignalHandler)
-    signal.signal(signal.SIGTERM, stopSignalHandler)
+    for sig in (signal.SIGINT, signal.SIGTERM, signal.SIGILL,):
+        signal.signal(sig, stopSignalHandler)
 
     managerCheckTime = time.time()
 

@@ -19,20 +19,23 @@ class Command(BaseCommand):
             authkey=CONFIG.authKey,
         )
 
-        managerAdmin = ManagerAdmin(
-            address=('localhost', CONFIG.port),
-            authkey=CONFIG.authKey,
-        )
-
         def shutdownManager(*args):
             print(f'Task manager close @ {currentTimeStr()}')
             time.sleep(2)
             exit()
 
-        signal.signal(signal.SIGINT, shutdownManager)
-        signal.signal(signal.SIGTERM, shutdownManager)
+        for sig in (signal.SIGINT, signal.SIGTERM, signal.SIGILL,):
+            signal.signal(sig, shutdownManager)
 
-        return managerServer, managerAdmin
+        return managerServer
+
+    def managerAdminInit(self):
+        managerAdmin = ManagerAdmin(
+            address=('localhost', CONFIG.port),
+            authkey=CONFIG.authKey,
+        )
+
+        return managerAdmin
 
     def workerClusterInit(self):
         managerClient = ManagerClient(
@@ -41,26 +44,30 @@ class Command(BaseCommand):
         )
 
         workerCluster = WorkerCluster(
-            managerCon=managerClient,
+            managerConn=managerClient,
             processFunc=workerFunc,
         )
         return workerCluster
 
     @no_translations
     def runManager(self):
-        managerServer, managerAdmin = self.managerServerInit()
+        managerServer = self.managerServerInit()
+        managerAdmin = self.managerAdminInit()
 
         managerServer.start()
         time.sleep(1)
         managerAdmin.connect()
 
         print(f'Task manager start @ {currentTimeStr()}')
+
+        checkTime = 0
         while True:
-            isRunning = managerAdmin.isRunning()._getvalue()
-            if isRunning:
-                AutoTaskHandler.taskSchemeAuto()
-            managerAdmin.refreshTaskQueue()._getvalue()
-            time.sleep(10)
+            if time.time() - checkTime > 10:
+                isRunning = managerAdmin.isRunning()._getvalue()
+                if isRunning:
+                    AutoTaskHandler.taskSchemeAuto()
+                    managerAdmin.refreshTaskQueue()._getvalue()
+            time.sleep(0.2)
 
     @no_translations
     def runCluster(self):
@@ -94,13 +101,13 @@ class Command(BaseCommand):
             print(managerStatus)
             return
 
-        print(f'''-----------------------------------------------------------''')
-        print(f'''>>>>> {managerStatus.get('name', '******')}: {managerStatus.get('status', '******')} ''')
-        print(f'''----------   Cluster     --------------------''')
+        print(f'''>-------------------------------------------------------''')
+        print(f'''>          {managerStatus.get('name', '******')}: {managerStatus.get('status', '******')} ''')
+        print(f'''>---------------   Cluster    --------------------------''')
         for cluster in managerStatus.get('cluster', []):
             print(f'''> {cluster.get('name'):>10}:{cluster.get('pid', [])}''')
 
-        print(f'''---------- running task  --------------------''')
+        print(f'''>--------------- running task --------------------------''')
         for taskRec in managerStatus.get('runningTask', []):
             print(f'''> {taskRec.get('taskSn')}:{taskRec.get('executor')}''')
 

@@ -98,12 +98,12 @@ class WorkerProcess:
 class WorkerCluster:
     def __init__(
             self, *_,
-            managerCon: BaseManager = None,
+            managerConn: BaseManager = None,
             localName: str = CONFIG.name,
             poolSize: int = CONFIG.poolSize,
             processFunc: Callable,
     ):
-        if managerCon is None:
+        if managerConn is None:
             raise Exception('Invalid task manager')
 
         self.__processPool: list[WorkerProcess] = []
@@ -117,7 +117,7 @@ class WorkerCluster:
         self.__shutdown = False
         # set the exitEvent() when managerStatus < 0 or exit = True
 
-        self.__managerCon: BaseManager = managerCon
+        self.__managerConn: BaseManager = managerConn
         self.__processFunc = processFunc
 
         self.__processCounter = 0
@@ -126,12 +126,7 @@ class WorkerCluster:
             print(f'Cluster {self.pid} receive shutdown signal @ {currentTimeStr()}')
             self.shutdown()
 
-        for sig in [
-            signal.SIGINT,
-            # signal.SIGHUP,
-            signal.SIGTERM,
-            signal.SIGILL,
-        ]:
+        for sig in (signal.SIGINT, signal.SIGTERM, signal.SIGILL,):
             signal.signal(sig, shutdownHandler)
 
         initTime = time.time()
@@ -139,7 +134,7 @@ class WorkerCluster:
             if self.__shutdownEvent.is_set():
                 break
             try:
-                self.__managerCon.connect()
+                self.__managerConn.connect()
                 break
             except Exception as err_:
                 print(f'Cluster {self.pid} connect task manager fail, waiting')
@@ -148,18 +143,18 @@ class WorkerCluster:
         print(f'Cluster {self.pid} start to create process, pool size is {self.__poolSize}')
 
     def appendProcess(self):
+        if len(self.__processPool) >= self.__poolSize:
+            return None
         if not self.running:
             return None
 
-        if len(self.__processPool) >= self.__poolSize:
-            return None
         while len(self.__processPool) < self.__poolSize:
             self.__processCounter += 1
             process = WorkerProcess(
                 sn=self.__processCounter,
                 shutdownEvent=self.__shutdownEvent,
                 processFunc=self.__processFunc,
-                manager=self.__managerCon,
+                manager=self.__managerConn,
                 localName=self.__localName,
             )
             self.__processPool.append(process)
@@ -193,7 +188,7 @@ class WorkerCluster:
 
             if time.time() - managerCheckTime > 10:
                 try:
-                    pingRes = self.__managerCon.ping(
+                    pingRes = self.__managerConn.ping(
                         {
                             'name': self.__localName,
                             'pid': self.workerPid,
