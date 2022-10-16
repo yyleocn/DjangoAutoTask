@@ -76,11 +76,15 @@ class TaskModelPublic(models.Model):
         max_length=50, default=None,
     )  # callback func location string
 
-    args = models.TextField(null=True, blank=False, )  # args
-    kwargs = models.TextField(null=True, blank=False, )  # kwargs
     combine = models.BigIntegerField(null=True)  # combine key
 
-    result = models.TextField(null=True, blank=False, )  # return value
+    args = models.JSONField(null=True, )  # args
+    kwargs = models.JSONField(null=True, )  # kwargs
+    result = models.JSONField(null=True, )  # return value
+
+    # args = models.TextField(null=True, blank=False, )  # args
+    # kwargs = models.TextField(null=True, blank=False, )  # kwargs
+    # result = models.TextField(null=True, blank=False, )  # return value
 
     pause = models.BooleanField(default=False)  # 暂停
     cancel = models.BooleanField(default=False)  # 取消
@@ -314,10 +318,12 @@ class TaskRec(TaskModelPublic):
         self.setStatus(self.StatusChoice.running)
         return True
 
-    def setSuccess(self, result: str = None) -> bool:
+    def setSuccess(self, result: any = None) -> bool:
         if not self.status == self.StatusChoice.running:
             return False
-        if isinstance(result, str):
+        # if isinstance(result, str):
+        #     self.result = result
+        if result is not None:
             self.result = result
         self.endTime = getCurrentTime()
         self.setStatus(self.StatusChoice.success)
