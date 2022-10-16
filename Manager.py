@@ -91,7 +91,7 @@ class TaskManager:
         if not self.isRunning():
             return
 
-            # --------------- get executing task --------------------
+        # --------------- get executing task --------------------
         runningTask: list[TaskState] = [
             taskState for taskState in self.__taskQueue
             if taskState.executor is not None

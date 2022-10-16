@@ -36,3 +36,12 @@
         - TaskSchema 任务计划
           - 生成TaskRec
 
+## 配置项
+``` python
+AUTO_TASK = {
+    'name': 'TestCluster',
+    'authKey': b'AuthKey',
+    'port': 33221,
+    'poolSize': 5,
+}
+```
