@@ -15,7 +15,7 @@ except AppRegistryNotReady:
 
     django.setup()
 
-from .Component import CONFIG, TaskConfig, importFunction, TaskState
+from .Component import CONFIG, TaskConfig, importFunction, TaskInfo
 
 from .models import TaskRec, TaskRecQueueFields, TaskScheme
 
@@ -36,28 +36,28 @@ class AutoTaskHandler:
 
     # -------------------- TaskRec --------------------
     @classmethod
-    def getTaskQueue(cls, *_, taskType: int | None = None, limit: int | None = None) -> list[TaskState]:
+    def getTaskQueue(cls, *_, taskType: int | None = None, limit: int | None = None) -> list[TaskInfo]:
 
         queryRes = TaskRec.getTaskQueue(taskType=taskType, limit=limit).values(*TaskRecQueueFields)
         return [
-            TaskState(
+            TaskInfo(
                 taskSn=taskRec['taskSn'], combine=taskRec['combine'], priority=taskRec['priority'],
                 config=TaskConfig(
                     sn=taskRec['taskSn'], combine=taskRec['combine'],
-                    timeout=taskRec['timeout'] or CONFIG.taskTimeout,
+                    expire=taskRec['expire'] or CONFIG.taskExpire,
                     func=taskRec['func'], callback=taskRec['callback'],
                     args=taskRec['args'], kwargs=taskRec['kwargs'],
                 ),
             ) for taskRec in queryRes
         ]
 
-    # -------------------- TaskRec Status --------------------
+    # -------------------- TaskRec State --------------------
     @classmethod
-    def setTaskStatus(cls, *_, taskSn, status: int, ):
+    def setTaskState(cls, *_, taskSn, state: int, ):
         taskRec = TaskRec.initTaskRec(taskSn=taskSn)
         if taskRec is None:
             return False
-        taskRec.setStatus(status=status)
+        taskRec.setState(state=state)
         return True
 
     @classmethod
@@ -82,19 +82,19 @@ class AutoTaskHandler:
         return taskRec.setError(errorText=errorText)
 
     @classmethod
-    def taskTimeout(cls, *_, taskSn: int):
+    def taskExpire(cls, *_, taskSn: int):
         taskRec = TaskRec.initTaskRec(taskSn=taskSn)
         if taskRec is None:
             return False
-        return taskRec.setError(errorText='Task timeout', errorStatus=TaskRec.StatusChoice.timeout)
+        return taskRec.setError(errorText='Task expire', errorCode=-100)
 
     @classmethod
-    def taskRunning(cls, *_, taskSn: int, overTime: int, executorName: str = None, ):
+    def taskRunning(cls, *_, taskSn: int, expire: int, executorName: str = None, ):
         taskRec = TaskRec.initTaskRec(taskSn=taskSn)
         if taskRec is None:
             return False
         return taskRec.setRunning(
-            overTime=overTime,
+            expire=expire,
             executorName=executorName,
         )
 

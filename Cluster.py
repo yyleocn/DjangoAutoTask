@@ -24,8 +24,9 @@ class WorkerProcess:
         self.__shutdownEvent = shutdownEvent
         self.__processFunc = processFunc
 
-        self.__processOvertime: int = time.time() + CONFIG.taskTimeout * 2
+        self.__processExpireTime: int = time.time() + CONFIG.taskExpire * 2
         self.__processPipe, self.__pipe = Pipe()
+
         self.__localName: str = localName
 
         self.createProcess()
@@ -35,7 +36,7 @@ class WorkerProcess:
             while self.__pipe.poll():
                 _ = self.__pipe.recv()
 
-            self.__processOvertime = time.time() + CONFIG.taskTimeout * 2
+            self.__processExpireTime = time.time() + CONFIG.taskExpire * 2
 
             self.__process = Process(
                 target=self.__processFunc,
@@ -68,18 +69,18 @@ class WorkerProcess:
             code, value = self.__pipe.recv()
             match code:
                 case 'alive':
-                    self.__processOvertime = value + CONFIG.taskTimeout
-                case 'overtime':
-                    self.__processOvertime = value
+                    self.__processExpireTime = value + CONFIG.taskExpire
+                case 'expireTime':
+                    self.__processExpireTime = value
 
-        if self.__processOvertime < time.time():
+        if self.__processExpireTime < time.time():
             self.processTerminate()
 
     def processTerminate(self):
         if not self.isAlive():
             return True
 
-        print(f'-- Worker {self.__sn}|{self.__process.pid} timeout, terminate')
+        print(f'-- Worker {self.__sn}|{self.__process.pid} expire, terminate')
         self.__process.terminate()
         time.sleep(0.5)
 

@@ -25,8 +25,8 @@ class TaskManager:
 
     def __init__(self, *_, **kwargs):
         self.__taskQueueLock: bool = False
-        self.__taskQueue: list[TaskState] = []
-        self.__taskDict: dict[int, TaskState] = {}
+        self.__taskQueue: list[TaskInfo] = []
+        self.__taskDict: dict[int, TaskInfo] = {}
         self.__exit: bool = False
         self.__shutdown: bool = False
         self.__pid = current_process().pid
@@ -78,21 +78,21 @@ class TaskManager:
         currentTime = time.time()
 
         # --------------- remove overtime task --------------------
-        for taskState in self.__taskQueue:
-            if taskState.done:
+        for taskInfo in self.__taskQueue:
+            if taskInfo.done:
                 continue
-            if taskState.overTime is None:
+            if taskInfo.expireTime is None:
                 continue
-            if taskState.overTime + 5 < currentTime:
-                taskState.overTime = None
-                self.taskTimeout(taskSn=taskState.taskSn)
-                self.removeTask(taskSn=taskState.taskSn)
+            if taskInfo.expireTime + 5 < currentTime:
+                taskInfo.expireTime = None
+                self.taskExpire(taskSn=taskInfo.taskSn)
+                self.removeTask(taskSn=taskInfo.taskSn)
 
         if not self.isRunning():
             return
 
         # --------------- get executing task --------------------
-        runningTask: list[TaskState] = [
+        runningTask: list[TaskInfo] = [
             taskState for taskState in self.__taskQueue
             if taskState.executor is not None
         ]
@@ -102,7 +102,7 @@ class TaskManager:
         }
 
         # --------------- get append task --------------------
-        appendTask: list[TaskState] = [
+        appendTask: list[TaskInfo] = [
             taskState for taskState in self.__handler.getTaskQueue(limit=CONFIG.queueSize)
             if taskState.taskSn not in executingTaskSn
         ]
@@ -129,7 +129,7 @@ class TaskManager:
         if self.__taskQueueLock or not self.isRunning():
             return -1
 
-        selectTask = None
+        selectTask: TaskInfo | None = None
 
         # --------------- search by combine --------------------
         if combine:
@@ -151,12 +151,12 @@ class TaskManager:
 
         # --------------- lock the task --------------------
         selectTask.executor = workerName
-        selectTask.overTime = time.time() + selectTask.config.timeout
+        selectTask.expireTime = int(time.time() + selectTask.config.expire)
 
         # --------------- set task running to db --------------------
         self.__handler.taskRunning(
             taskSn=selectTask.taskSn,
-            overTime=int(selectTask.overTime),
+            expire=selectTask.config.expire,
             executorName=selectTask.executor,
         )
 
@@ -182,31 +182,33 @@ class TaskManager:
         self.removeTask(taskSn)
         return self.__handler.taskError(taskSn=taskSn, errorText=errorText)
 
-    def taskTimeout(self, *_, taskSn: int, ):
-        print(f'  Task {taskSn} timeout')
-        return self.__handler.taskTimeout(taskSn=taskSn)
+    def taskExpire(self, *_, taskSn: int, ):
+        print(f'  Task {taskSn} expire.')
+        return self.__handler.taskExpire(taskSn=taskSn)
 
     def invalidConfig(self, *_, taskSn: int, errorText: str, ):
         return self.__handler.taskInvalidConfig(taskSn=taskSn, errorText=errorText, )
 
-    def ping(self, status, *_, ):
-        if isinstance(status, dict):
-            clusterName = status.get('name')
-            clusterPid = status.get('pid')
-            clusterStatus = status.get('status')
+    def ping(self, state, *_, ):
+        if isinstance(state, dict):
+            clusterName = state.get('name')
+            clusterPid = state.get('pid')
+            clusterStatus = state.get('status')
             print(f'Cluster {clusterName} ping task manager')
-            self.__clusterDict[clusterName] = status
+            self.__clusterDict[clusterName] = state
 
         else:
             print('Invalid ping message.')
-        if not self.isRunning():
             return -1
-        return 0
+
+        if not self.isRunning():
+            return 0
+        return 1
 
     def status(self):
         return {
             'name': CONFIG.name,
-            'status': 'running' if self.isRunning() else 'shutdown',
+            'state': 'running' if self.isRunning() else 'shutdown',
             'cluster': self.__clusterDict.values(),
             'runningTask': [
                 {
@@ -277,7 +279,7 @@ class ManagerClient(BaseManager):
 
         managerClientFunc = (
             'ping', 'getTask',
-            'configError', 'taskSuccess', 'taskError', 'taskTimeout',
+            'configError', 'taskSuccess', 'taskError', 'taskExpire',
         )
         for name_ in managerClientFunc:
             cls.register(name_)

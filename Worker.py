@@ -3,7 +3,7 @@ import signal
 
 from multiprocessing import current_process, Event
 
-from .Component import SubProcessConfig, currentTimeStr, CONFIG, proxyFunctionCall, ProxyTimeoutException, TaskConfig
+from .Component import SubProcessConfig, currentTimeStr, CONFIG, proxyFunctionCall, ProxyExpireException, TaskConfig
 from .Handler import AutoTaskHandler
 
 
@@ -75,8 +75,8 @@ def workerFunc(workerConfig: SubProcessConfig, *args, **kwargs):
                 )
                 continue
 
-            # -------------------- send overtime --------------------
-            workerConfig.pipe.send(('overtime', currentTime + taskConfig.timeout))
+            # -------------------- send expire time --------------------
+            workerConfig.pipe.send(('expireTime', currentTime + taskConfig.expire))
 
             try:
                 # -------------------- executor task --------------------
@@ -104,11 +104,11 @@ def workerFunc(workerConfig: SubProcessConfig, *args, **kwargs):
                 result=result,
             )
 
-        # -------------------- catch the manager timeout exception --------------------
-        except ProxyTimeoutException as err_:
-            print(f'Task manager timeout @ worker {processID}')
+        # -------------------- catch the manager expire exception --------------------
+        except ProxyExpireException as err_:
+            print(f'Task manager expire @ worker {processID}')
 
-            # -------------------- task manager timeout --------------------
+            # -------------------- task manager expire --------------------
             if currentTime - managerCheckTime < CONFIG.managerTimeLimit:
                 time.sleep(5)
             else:

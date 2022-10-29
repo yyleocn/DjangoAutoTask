@@ -103,7 +103,7 @@ class Command(BaseCommand):
             return
 
         print(f'''>-------------------------------------------------------''')
-        print(f'''>          {managerStatus.get('name', '******')}: {managerStatus.get('status', '******')} ''')
+        print(f'''>          {managerStatus.get('name', '******')}: {managerStatus.get('state', '******')} ''')
         print(f'''>---------------   Cluster    --------------------------''')
         for cluster in managerStatus.get('cluster', []):
             print(f'''> {cluster.get('name'):>10}:{cluster.get('pid', [])}''')

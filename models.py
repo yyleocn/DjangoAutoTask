@@ -8,7 +8,7 @@ from django.db import models
 from django.db.models import Q
 from django.db.models.query import QuerySet
 
-TASK_TIMEOUT_DEFAULT = 30
+TASK_EXPIRE_DEFAULT = 30
 
 
 def stamp2str(stamp: int | float):
@@ -38,7 +38,7 @@ class TaskModelPublic(models.Model):
 
     planTime = TimeStampField(null=False, default=0)  # 计划时间
 
-    timeout = models.SmallIntegerField(null=True)  # 运行时限
+    expire = models.SmallIntegerField(null=True)  # 运行时限
     delay = models.SmallIntegerField(default=10, null=False, )  # 延迟
     retry = models.SmallIntegerField(default=0)  # 重试
 
@@ -177,7 +177,7 @@ class TaskScheme(TaskModelPublic):
             args=self.args,
             kwargs=self.kwargs,
 
-            timeout=self.timeout,
+            expire=self.expire,
             delay=self.delay,
             retry=self.retry,
 
@@ -188,7 +188,7 @@ class TaskScheme(TaskModelPublic):
 
 TaskRecQueueFields = (
     'taskSn', 'type', 'priority',
-    'func', 'args', 'kwargs', 'combine', 'callback', 'timeout', 'priority',
+    'func', 'args', 'kwargs', 'combine', 'callback', 'expire', 'priority',
 )
 
 
@@ -199,25 +199,24 @@ class TaskRec(TaskModelPublic):
     package = models.ForeignKey(to=TaskPackage, null=True, on_delete=models.SET_NULL, related_name='taskRec')  # 作业包
     scheme = models.ForeignKey(to=TaskScheme, null=True, on_delete=models.SET_NULL, related_name='taskRec')  # 作业计划
 
-    # -------------------- status --------------------
-    class StatusChoice(models.IntegerChoices):
+    # -------------------- state --------------------
+    class StateChoice(models.IntegerChoices):
         invalid_config = -999
         callback_error = -200
         fail = -100
-        error = -50
-        timeout = -30
+        runError = -50
         normal = 1
         running = 10
         success = 100
         finish = 200
 
-    status = models.SmallIntegerField(null=False, choices=StatusChoice.choices, default=StatusChoice.normal, )  # 状态
+    taskState = models.SmallIntegerField(null=False, choices=StateChoice.choices, default=StateChoice.normal, )  # 状态
     errorText = models.CharField(max_length=100, null=True, blank=False, default=None)  # 错误信息
-
+    errorCode = models.SmallIntegerField(null=True, )  # 错误代码
     # -------------------- time stamp --------------------
 
     retryTime = TimeStampField(null=True)  # 重试时间
-    overTime = TimeStampField(null=True)  # 超时时间
+    expireTime = TimeStampField(null=True)  # 超时时间
 
     startTime = TimeStampField(null=True)  # 开始时间
     endTime = TimeStampField(null=True)  # 结束时间
@@ -232,7 +231,7 @@ class TaskRec(TaskModelPublic):
         if not cls.objects.filter(taskSn=taskSn).exists():
             return None
         taskRec = cls.objects.get(taskSn=taskSn)
-        if not cls.StatusChoice.fail < taskRec.status < cls.StatusChoice.success:
+        if not cls.StateChoice.fail < taskRec.state < cls.StateChoice.success:
             return None
         return taskRec
 
@@ -240,7 +239,7 @@ class TaskRec(TaskModelPublic):
     def getTaskQueue(
             cls, *_,
             limit: int = None,
-            status: int = None, priority: int = None, taskType: int = None,
+            state: int = None, priority: int = None, taskType: int = None,
             **kwargs
     ) -> QuerySet['TaskRec']:
         currentTime = getCurrentTime()
@@ -251,9 +250,9 @@ class TaskRec(TaskModelPublic):
 
         queryConfig = [
             Q(
-                status__gte=cls.StatusChoice.error, status__lt=cls.StatusChoice.success,
+                state__gte=cls.StateChoice.runError, state__lt=cls.StateChoice.success,
             ),
-            ~(Q(status=cls.StatusChoice.error) & Q(retry__gt=currentTime)),
+            ~(Q(state=cls.StateChoice.runError) & Q(retry__gt=currentTime)),
             Q(planTime__lte=currentTime),
             Q(retryTime__isnull=True) | Q(retryTime__lte=currentTime),
             Q(pause=False),
@@ -266,8 +265,8 @@ class TaskRec(TaskModelPublic):
         if isinstance(priority, int):
             queryConfig.append(Q(priority__lte=priority))
 
-        if isinstance(status, int):
-            queryConfig.append(Q(status=status))
+        if isinstance(state, int):
+            queryConfig.append(Q(state=state))
 
         taskQuery = cls.objects.filter(
             *queryConfig,
@@ -279,54 +278,61 @@ class TaskRec(TaskModelPublic):
     def overtimeTask(cls, ) -> QuerySet['TaskRec']:
         currentTime = getCurrentTime()
         queryConfig = [
-            Q(status=cls.StatusChoice.running),
-            Q(overTime__lt=currentTime - 5),
+            Q(state=cls.StateChoice.running),
+            Q(expireTime__lt=currentTime - 5),
         ]
 
         return cls.objects.filter(*queryConfig)
 
-    def setStatus(self, status: int):
-        self.status = status
-        self.statusTime = getCurrentTime()
+    def setState(self, state: int):
+        self.taskState = state
+        self.taskStateTime = getCurrentTime()
         self.save()
 
     def invalidConfig(self, errorText: str) -> bool:
-        if self.status == self.StatusChoice.running:
+        if self.taskState == self.StateChoice.running:
             return False
         self.errorText = errorText[:100]
-        self.setStatus(self.StatusChoice.invalid_config)
+        self.setState(self.StateChoice.invalid_config)
         return True
 
-    def setError(self, errorText: str, errorStatus=StatusChoice.error) -> bool:
-        if not self.status == self.StatusChoice.running:
+    def setError(self, errorText: str, errorCode: int) -> bool:
+        assert isinstance(errorCode, int), f'Invalid error code @ {self.taskSn}.'
+
+        if not self.taskState == self.StateChoice.running:
             return False
+
         self.errorText = errorText[:100]
+        self.errorCode = errorCode
         if self.execute >= self.retry:
-            self.setStatus(self.StatusChoice.fail)
+            self.setState(self.StateChoice.fail)
             return True
+
         self.retryTime = getCurrentTime() + self.delay
-        self.setStatus(errorStatus)
+        self.setState(self.StateChoice.runError)
         return True
 
-    def setRunning(self, overTime: int, executorName: str = None, ) -> bool:
-        if self.status >= self.StatusChoice.success:
+    def setRunning(self, expire: int, executorName: str = None, ) -> bool:
+        if self.taskState >= self.StateChoice.success:
             return False
         self.execute += 1
         self.executorName = executorName
+
         self.startTime = getCurrentTime()
-        self.overTime = getCurrentTime() + (self.timeout or TASK_TIMEOUT_DEFAULT)
-        self.setStatus(self.StatusChoice.running)
+        self.expireTime = self.startTime + expire
+
+        self.setState(self.StateChoice.running)
         return True
 
     def setSuccess(self, result: any = None) -> bool:
-        if not self.status == self.StatusChoice.running:
+        if not self.taskState == self.StateChoice.running:
             return False
         # if isinstance(result, str):
         #     self.result = result
         if result is not None:
             self.result = result
         self.endTime = getCurrentTime()
-        self.setStatus(self.StatusChoice.success)
+        self.setState(self.StateChoice.success)
         return True
 
 

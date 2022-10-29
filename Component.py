@@ -92,7 +92,7 @@ class AutoTaskConfig:
     name: str = 'AutoTask'
     poolSize: int = 2
     processLifeTime: int = 600
-    taskTimeout: int = 10
+    taskExpire: int = 10
 
 
 CONFIG = AutoTaskConfig(**autoTaskConfig)
@@ -135,7 +135,7 @@ class SubProcessConfig:
 class TaskConfig:
     sn: int
     func: str
-    timeout: int
+    expire: int
 
     args: str | None = None
     kwargs: str | None = None
@@ -145,13 +145,13 @@ class TaskConfig:
 
 
 @dataclass
-class TaskState:
+class TaskInfo:
     taskSn: int
     priority: int
     config: TaskConfig
 
     combine: int = None
-    overTime: int = None
+    expireTime: int = None
     executor: str = None
     done: bool = False
 
@@ -164,7 +164,7 @@ def currentTimeStr():
 #     def __init__(self, *_, code: int, reason: str, ):
 #         pass
 
-class ProxyTimeoutException(Exception):
+class ProxyExpireException(Exception):
     pass
 
 
@@ -177,13 +177,13 @@ def proxyFunctionCall(func: Callable, *args, retry=5, **kwargs):
             print(f'  Proxy function {func.__name__} call error: {err_}')
             retryCounter = retryCounter + 1
             time.sleep(1)
-    raise ProxyTimeoutException(f'TaskManager call {func.__name__} fail.')
+    raise ProxyExpireException(f'TaskManager call {func.__name__} fail.')
 
 
 __all__ = (
     'CONFIG',
     'TaskConfig', 'ReadonlyDict',
     'importComponent', 'importFunction',
-    'SubProcessConfig', 'TaskConfig', 'TaskState',
-    'currentTimeStr', 'proxyFunctionCall', 'ProxyTimeoutException',
+    'SubProcessConfig', 'TaskConfig', 'TaskInfo',
+    'currentTimeStr', 'proxyFunctionCall', 'ProxyExpireException',
 )
