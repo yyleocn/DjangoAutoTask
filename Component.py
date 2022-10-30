@@ -67,13 +67,7 @@ def importFunction(path: str, *_, forceLoad: bool = False, cache: dict | None = 
 
 
 # -------------------- config --------------------
-autoTaskConfig = {
-}
-
-if hasattr(settings, 'AUTO_TASK'):
-    autoTaskConfig.update(
-        settings.AUTO_TASK
-    )
+autoTaskConfig = getattr(settings, 'AUTO_TASK', dict())
 
 
 @dataclass(frozen=True)
@@ -86,7 +80,6 @@ class AutoTaskConfig:
     port: int = 8800
     queueSize: int = 100
     managerTimeLimit: int = 300
-    dbSecretKey: str = 'SecretKey'
 
     # cluster
     name: str = 'AutoTask'
