@@ -11,7 +11,7 @@ from ...Handler import AutoTaskHandler
 
 
 class Command(BaseCommand):
-    help = "Run AutoTask command."
+    help = 'Run AutoTask command'
 
     def managerServerInit(self):
         managerServer = ManagerServer(
@@ -79,7 +79,7 @@ class Command(BaseCommand):
     def add_arguments(self, parser):
         parser.add_argument(
             'command',
-            help='Command: manager / cluster / shutdown / status.',
+            help='Command: manager / cluster / shutdown / status',
         )
 
     def shutdownManager(self):

@@ -150,7 +150,7 @@ class TaskScheme(TaskModelPublic):
                 return False
             self.planTime = self.planTime + self.interval
 
-        print(f'  TaskScheme {self.schemeSn} create next task.')
+        print(f'  TaskScheme {self.schemeSn} create next task')
 
         nextTaskRec = self.taskRecCreate(planTime=self.planTime, scheme=self)
 
@@ -297,7 +297,7 @@ class TaskRec(TaskModelPublic):
         return True
 
     def setError(self, errorText: str, errorCode: int) -> bool:
-        assert isinstance(errorCode, int), f'Invalid error code @ {self.taskSn}.'
+        assert isinstance(errorCode, int), f'Invalid error code @ {self.taskSn}'
 
         if not self.taskState == self.StateChoice.running:
             return False

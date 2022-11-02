@@ -109,25 +109,25 @@ class AutoTaskHandler:
         try:
             runConfig['func']: Callable = importFunction(config.func)
         except:
-            raise Exception('Invalid task function.')
+            raise Exception('Invalid task function')
         if not callable(runConfig['func']):
-            raise Exception('Invalid task function.')
+            raise Exception('Invalid task function')
 
         try:
             if config.args:
                 runConfig['args']: list = cls.deserialize(config.args)
         except:
-            raise Exception('Invalid task args.')
+            raise Exception('Invalid task args')
         if not isinstance(runConfig['args'], list):
-            raise Exception('Invalid task args.')
+            raise Exception('Invalid task args')
 
         try:
             if config.kwargs:
                 runConfig['kwargs']: dict = cls.deserialize(config.kwargs)
         except:
-            raise Exception('Invalid task kwargs.')
+            raise Exception('Invalid task kwargs')
         if not isinstance(runConfig['kwargs'], dict):
-            raise Exception('Invalid task kwargs.')
+            raise Exception('Invalid task kwargs')
 
         return runConfig
 

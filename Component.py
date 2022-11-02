@@ -13,7 +13,9 @@ from django.conf import settings
 
 # -------------------- import component by string --------------------
 class ErrorDuringImport(Exception):
-    """Errors that occurred while trying to import something to document it."""
+    """
+    Errors that occurred while trying to import something to document it.
+    """
 
     def __init__(self, filename, exc_info):
         self.filename = filename
@@ -49,7 +51,7 @@ def importComponent(path: str, *_, forceLoad: bool = False, cache: dict | None =
         n = n - 1
 
     if not hasattr(importModule, '.'.join(pathParts[n:])):
-        raise Exception(f'{path} not exist.')
+        raise Exception(f'{path} not exist')
     return getattr(importModule, '.'.join(pathParts[n:]))
 
 
@@ -61,7 +63,7 @@ def importFunction(path: str, *_, forceLoad: bool = False, cache: dict | None = 
     )
 
     if not isinstance(func, Callable):
-        raise Exception(f'{path} is not a function.')
+        raise Exception(f'{path} is not a function')
 
     return func
 
@@ -100,7 +102,7 @@ class ReadonlyDict(dict):
     """
 
     def __readonly__(self, ):
-        raise RuntimeError("Cannot modify readonly dict.")
+        raise RuntimeError('Cannot modify readonly dict')
 
     __setitem__ = __readonly__
     __delitem__ = __readonly__
@@ -170,7 +172,7 @@ def proxyFunctionCall(func: Callable, *args, retry=5, **kwargs):
             print(f'  Proxy function {func.__name__} call error: {err_}')
             retryCounter = retryCounter + 1
             time.sleep(1)
-    raise ProxyExpireException(f'TaskManager call {func.__name__} fail.')
+    raise ProxyExpireException(f'TaskManager call {func.__name__} fail')
 
 
 __all__ = (

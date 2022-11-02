@@ -55,7 +55,7 @@ class TaskManager:
 
     def shutdownManager(self):
         self.__shutdown = True
-        return 'The TaskManger is set to shutdown.'
+        return 'The TaskManger is set to shutdown'
 
     @property
     def pid(self):
@@ -183,7 +183,7 @@ class TaskManager:
         return self.__handler.taskError(taskSn=taskSn, errorText=errorText)
 
     def taskExpire(self, *_, taskSn: int, ):
-        print(f'  Task {taskSn} expire.')
+        print(f'  Task {taskSn} expire')
         return self.__handler.taskExpire(taskSn=taskSn)
 
     def invalidConfig(self, *_, taskSn: int, errorText: str, ):
@@ -198,7 +198,7 @@ class TaskManager:
             self.__clusterDict[clusterName] = state
 
         else:
-            print('Invalid ping message.')
+            print('Invalid ping message')
             return -1
 
         if not self.isRunning():
