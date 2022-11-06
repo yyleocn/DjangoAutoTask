@@ -1,18 +1,20 @@
+from __future__ import annotations
+
 import time
-from time import time as getCurrentTime
-from typing import Union
 
 from croniter import croniter
-
 from django.db import models
-from django.db.models import Q
-from django.db.models.query import QuerySet
+from django.db.models import QuerySet, Q
 
-TASK_EXPIRE_DEFAULT = 30
+from .Component import CONFIG
 
 
-def stamp2str(stamp: int | float):
-    return time.strftime('%Y-%m-%d_%H:%M:%S', time.localtime(stamp))
+def taskTimeLimit() -> int:
+    return CONFIG.taskTimeLimit
+
+
+def currentStamp() -> int:
+    return int(time.time())
 
 
 class UserField(models.CharField):
@@ -28,17 +30,17 @@ class TimeStampField(models.BigIntegerField):
     pass
 
 
-class TaskModelPublic(models.Model):
-    # -------------------- create --------------------
-    createTime = TimeStampField(null=False)
-    createUser = UserField(null=False)
+class TaskFieldPublic(models.Model):
+    # -------------------- requirement --------------------
+    createTime = TimeStampField(null=False, default=currentStamp)
+    createUser = UserField(null=False, blank=False)
 
     name = models.CharField(max_length=50, null=True, )  # 作业名称
     tag = models.JSONField(max_length=50, null=True, )  # 标签
 
     planTime = TimeStampField(null=False, default=0)  # 计划时间
 
-    expire = models.SmallIntegerField(null=True)  # 运行时限
+    timeLimit = models.SmallIntegerField(null=False, default=taskTimeLimit)  # 运行时限
     delay = models.SmallIntegerField(default=10, null=False, )  # 延迟
     retry = models.SmallIntegerField(default=0)  # 重试
 
@@ -47,10 +49,7 @@ class TaskModelPublic(models.Model):
         normal = 0
         scheme = 10
 
-    type = models.SmallIntegerField(
-        choices=TypeChoice.choices,
-        default=TypeChoice.normal,
-    )  # 类型
+    type = models.SmallIntegerField(choices=TypeChoice.choices, default=TypeChoice.normal, )  # 类型
 
     # -------------------- priority --------------------
 
@@ -59,85 +58,78 @@ class TaskModelPublic(models.Model):
         scheme = 50
         normal = 100
         idle = 200
-        pause = 1000
 
-    priority = models.SmallIntegerField(
-        choices=PriorityChoice.choices,
-        default=PriorityChoice.normal,
-    )  # 优先级
-
-    # -------------------- task config --------------------
-    func = models.CharField(
-        null=False, blank=False,
-        max_length=50,
-    )  # func location string
-    callback = models.CharField(
-        null=True, blank=False,
-        max_length=50, default=None,
-    )  # callback func location string
-
-    combine = models.BigIntegerField(null=True)  # combine key
-
-    args = models.JSONField(null=True, )  # args
-    kwargs = models.JSONField(null=True, )  # kwargs
-    result = models.JSONField(null=True, )  # return value
-
-    # args = models.TextField(null=True, blank=False, )  # args
-    # kwargs = models.TextField(null=True, blank=False, )  # kwargs
-    # result = models.TextField(null=True, blank=False, )  # return value
+    priority = models.SmallIntegerField(choices=PriorityChoice.choices, default=PriorityChoice.normal, )  # 优先级
 
     pause = models.BooleanField(default=False)  # 暂停
     cancel = models.BooleanField(default=False)  # 取消
+
+    # -------------------- task config --------------------
+    func = models.CharField(null=False, blank=False, max_length=50, )  # func location string
+
+    successTrigger = models.CharField(null=True, blank=False, max_length=50, )  # 任务成功的触发器，func location string
+    failTrigger = models.CharField(null=True, blank=False, max_length=50, )  # 任务失败的触发器，func location string
+
+    combine = models.BigIntegerField(null=True)  # combine key
+
+    # args = models.JSONField(null=True, )  # args
+    # kwargs = models.JSONField(null=True, )  # kwargs
+    # result = models.JSONField(null=True, )  # return value
+
+    args = models.TextField(null=True, blank=False, )  # args
+    kwargs = models.TextField(null=True, blank=False, )  # kwargs
+    result = models.TextField(null=True, blank=False, )  # return value
 
     class Meta:
         abstract = True
 
 
-class TaskPackage(TaskModelPublic):
-    sn = models.BigAutoField(primary_key=True, )
+class TaskPackage(TaskFieldPublic):
+    taskPackageSn = models.BigAutoField(primary_key=True, )
 
-    count = models.PositiveIntegerField(default=0, )  # 总数
-    success = models.PositiveIntegerField(default=0, )  # 成功
-    fail = models.PositiveIntegerField(default=0, )  # 失败
-    running = models.PositiveIntegerField(default=0, )  # running
+    taskCount = models.PositiveIntegerField(default=0, )  # 总数
+    successCount = models.PositiveIntegerField(default=0, )  # 成功
+    failCount = models.PositiveIntegerField(default=0, )  # 失败
+    runningCount = models.PositiveIntegerField(default=0, )  # running
 
     finished = models.BooleanField(default=False, )
 
+    def refreshStatus(self):
+        queryRes = TaskRec.objects.filter(taskPackage_id=self.taskPackageSn).values('state')
+
     func = None
-    args = None
+    argsArray = None
     kwargs = None
-    callback = None
+    successTrigger = None
     combine = None
     result = None
 
 
-class TaskScheme(TaskModelPublic):
-    schemeSn = models.AutoField(primary_key=True)  # scheme sn
+class TaskScheme(TaskFieldPublic):
+    taskSchemeSn = models.AutoField(primary_key=True)  # scheme sn
 
     # -------------------- next --------------------
-
+    state = models.SmallIntegerField(default=1)  # 计划状态
     cronStr = models.CharField(max_length=20, null=False, blank=False)  # crontab 配置
-    interval = models.PositiveIntegerField(default=86400)  # 执行间隔
+    interval = models.PositiveIntegerField(null=True)  # 执行间隔
 
     currentTask = models.ForeignKey(
-        to="TaskRec", null=True, on_delete=models.SET_NULL, related_name='currentScheme'
+        to="TaskRec", null=True, on_delete=models.SET_NULL, related_name='taskScheme',
     )  # 当前任务
 
-    retainDuration = models.PositiveIntegerField(null=False, default=86400 * 7)  # 任务保留时间
+    taskRecRetain = models.PositiveIntegerField(null=False, default=86400 * 7)  # 任务保留时间
 
     priority = None
     result = None
 
+    message = models.CharField(max_length=30, default=None, blank=True)
+
     @classmethod
-    def expireScheme(cls) -> QuerySet['TaskScheme']:
-        return cls.objects.filter(
-            planTime__lt=getCurrentTime(),
-            cancel=False,
-            pause=False,
-        )
+    def queryExpireScheme(cls) -> QuerySet[TaskScheme]:
+        return cls.objects.filter(planTime__lt=currentStamp(), cancel=False, pause=False, )
 
     def nextTaskCreate(self):
-        currentTime = getCurrentTime()
+        currentTime = currentStamp()
         if currentTime < self.planTime:
             return False
 
@@ -145,12 +137,13 @@ class TaskScheme(TaskModelPublic):
             planTime = self.planTime
             cron = croniter(self.cronStr, currentTime)
             self.planTime = cron.next()
+
         else:
             if not self.interval:
                 return False
             self.planTime = self.planTime + self.interval
 
-        print(f'  TaskScheme {self.schemeSn} create next task')
+        print(f'  TaskScheme {self.taskSchemeSn} create next task')
 
         nextTaskRec = self.taskRecCreate(planTime=self.planTime, scheme=self)
 
@@ -158,14 +151,15 @@ class TaskScheme(TaskModelPublic):
 
         self.save()
 
-    def taskRecCreate(self, planTime: int | float, scheme: 'TaskScheme') -> 'TaskRec':
-        planTimeStr = stamp2str(planTime)
+    def stampToStr(self, stamp: int):
+        return time.strftime('%Y%m%d-%H%M%S', time.localtime(stamp))
+
+    def taskRecCreate(self, planTime: int | float, scheme: TaskScheme) -> TaskRec:
         nextTask = TaskRec(
-            createTime=time.time(),
             createUser=self.createUser,
 
             type=TaskRec.TypeChoice.scheme,
-            name=f'{self.name}-{planTimeStr}',
+            name=f'{self.name}-{self.stampToStr(planTime)}',
             tag=self.tag,
 
             scheme=scheme,
@@ -177,82 +171,98 @@ class TaskScheme(TaskModelPublic):
             args=self.args,
             kwargs=self.kwargs,
 
-            expire=self.expire,
+            timeLimit=self.timeLimit,
             delay=self.delay,
             retry=self.retry,
-
         )
         nextTask.save()
         return nextTask
 
 
-TaskRecQueueFields = (
-    'taskSn', 'type', 'priority',
-    'func', 'args', 'kwargs', 'combine', 'callback', 'expire', 'priority',
-)
-
-
-class TaskRec(TaskModelPublic):
+class TaskRec(TaskFieldPublic):
     taskSn = models.BigAutoField(primary_key=True)  # task sn
 
     # --------------------  --------------------
-    package = models.ForeignKey(to=TaskPackage, null=True, on_delete=models.SET_NULL, related_name='taskRec')  # 作业包
-    scheme = models.ForeignKey(to=TaskScheme, null=True, on_delete=models.SET_NULL, related_name='taskRec')  # 作业计划
+    taskPackage = models.ForeignKey(
+        to='TaskPackage', related_name='taskRec',
+        null=True, on_delete=models.SET_NULL,
+    )  # 任务包
+
+    taskScheme = models.ForeignKey(
+        to='TaskScheme', related_name='taskRec',
+        null=True, on_delete=models.SET_NULL,
+    )  # 计划
 
     # -------------------- state --------------------
-    class StateChoice(models.IntegerChoices):
-        invalid_config = -999
-        callback_error = -200
+    class TaskStateChoice(models.IntegerChoices):
         fail = -100
-        runError = -50
-        normal = 1
+        error = -10
+        init = 0
         running = 10
         success = 100
-        finish = 200
 
-    taskState = models.SmallIntegerField(null=False, choices=StateChoice.choices, default=StateChoice.normal, )  # 状态
-    errorText = models.CharField(max_length=100, null=True, blank=False, default=None)  # 错误信息
-    errorCode = models.SmallIntegerField(null=True, )  # 错误代码
+    taskState = models.SmallIntegerField(
+        null=False,
+        choices=TaskStateChoice.choices,
+        default=TaskStateChoice.init,
+    )  # 任务状态
+
+    class TriggerStateChoice(models.IntegerChoices):
+        invalid = 0
+        fail = -10
+        init = 1
+        success = 10
+
+    triggerState = models.SmallIntegerField(
+        null=True,
+        choices=TriggerStateChoice.choices,
+        default=TriggerStateChoice.invalid,
+    )  # 触发器状态
+
+    class ErrorCodeChoice(models.IntegerChoices):
+        crash = 100001
+        timeout = 200001
+        invalidConfig = 300001
+
+    errorCode = models.SmallIntegerField(null=True, choices=ErrorCodeChoice.choices, )  # 错误代码
+    errorDetail = models.TextField(null=True, blank=False, )  # 错误信息
     # -------------------- time stamp --------------------
 
     retryTime = TimeStampField(null=True)  # 重试时间
-    expireTime = TimeStampField(null=True)  # 超时时间
+    timeout = TimeStampField(null=True)  # 超时时间
 
     startTime = TimeStampField(null=True)  # 开始时间
     endTime = TimeStampField(null=True)  # 结束时间
 
-    executorName = models.CharField(null=True, max_length=50, )  # process name
+    executorName = models.CharField(null=True, max_length=30, )  # process name
     execute = models.SmallIntegerField(default=0)  # 执行次数
 
     @classmethod
-    def initTaskRec(cls, taskSn: int) -> Union['TaskRec', None]:
+    def taskRecManage(cls, taskSn: int) -> TaskRec | None:
         if not isinstance(taskSn, int):
             return None
         if not cls.objects.filter(taskSn=taskSn).exists():
             return None
         taskRec = cls.objects.get(taskSn=taskSn)
-        if not cls.StateChoice.fail < taskRec.state < cls.StateChoice.success:
+        if not cls.TriggerStateChoice.fail < taskRec.state < cls.TriggerStateChoice.success:
             return None
         return taskRec
 
     @classmethod
     def getTaskQueue(
-            cls, *_,
-            limit: int = None,
+            cls, *_, size: int = None,
             state: int = None, priority: int = None, taskType: int = None,
             **kwargs
-    ) -> QuerySet['TaskRec']:
-        currentTime = getCurrentTime()
+    ) -> QuerySet[TaskRec]:
+        currentTime = currentStamp()
 
-        queryLimit = 1000
-        if isinstance(limit, int):
-            queryLimit = limit
+        querySize = CONFIG.queueSize
+        if isinstance(size, int):
+            querySize = size
 
         queryConfig = [
-            Q(
-                state__gte=cls.StateChoice.runError, state__lt=cls.StateChoice.success,
-            ),
-            ~(Q(state=cls.StateChoice.runError) & Q(retry__gt=currentTime)),
+            Q(state__gte=cls.TaskStateChoice.error, state__lt=cls.TaskStateChoice.success, ),
+            ~(Q(state=cls.TaskStateChoice.error) & Q(retry__gt=currentTime)),
             Q(planTime__lte=currentTime),
             Q(retryTime__isnull=True) | Q(retryTime__lte=currentTime),
             Q(pause=False),
@@ -270,72 +280,78 @@ class TaskRec(TaskModelPublic):
 
         taskQuery = cls.objects.filter(
             *queryConfig,
-        ).order_by('priority', 'startTime', 'createTime')[:queryLimit]
+        ).order_by('priority', 'startTime', 'createTime')[:querySize]
 
         return taskQuery
 
     @classmethod
-    def overtimeTask(cls, ) -> QuerySet['TaskRec']:
-        currentTime = getCurrentTime()
+    def overtimeTask(cls, ) -> QuerySet[TaskRec]:
+        currentTime = currentStamp()
         queryConfig = [
-            Q(state=cls.StateChoice.running),
+            Q(state=cls.TaskStateChoice.running),
             Q(expireTime__lt=currentTime - 5),
         ]
 
         return cls.objects.filter(*queryConfig)
 
-    def setState(self, state: int):
+    def updateState(self, state: int):
         self.taskState = state
-        self.taskStateTime = getCurrentTime()
+        self.taskStateTime = currentStamp()
         self.save()
 
-    def invalidConfig(self, errorText: str) -> bool:
-        if self.taskState == self.StateChoice.running:
-            return False
-        self.errorText = errorText[:100]
-        self.setState(self.StateChoice.invalid_config)
-        return True
-
-    def setError(self, errorText: str, errorCode: int) -> bool:
-        assert isinstance(errorCode, int), f'Invalid error code @ {self.taskSn}'
-
-        if not self.taskState == self.StateChoice.running:
+    def invalidConfig(self) -> bool:
+        if self.taskState != self.TaskStateChoice.running:
             return False
 
-        self.errorText = errorText[:100]
-        self.errorCode = errorCode
-        if self.execute >= self.retry:
-            self.setState(self.StateChoice.fail)
-            return True
-
-        self.retryTime = getCurrentTime() + self.delay
-        self.setState(self.StateChoice.runError)
+        self.errorDetail = 'Invalid config'
+        self.errorCode = self.ErrorCodeChoice.invalidConfig
+        self.updateState(self.TaskStateChoice.fail)
         return True
 
-    def setRunning(self, expire: int, executorName: str = None, ) -> bool:
-        if self.taskState >= self.StateChoice.success:
+    def setRunning(self, executorName: str) -> int:
+        if self.taskState >= self.TaskStateChoice.success:
             return False
         self.execute += 1
-        self.executorName = executorName
+        self.executorName = executorName[:30]
 
-        self.startTime = getCurrentTime()
-        self.expireTime = self.startTime + expire
+        self.startTime = currentStamp()
+        self.timeout = self.startTime + self.timeLimit
 
-        self.setState(self.StateChoice.running)
+        self.updateState(self.TaskStateChoice.running)
+
+        return self.timeout
+
+    def setError(self, errorDetail: str, errorCode: int = None) -> bool:
+        if not self.taskState == self.TaskStateChoice.running:
+            return False
+
+        self.errorDetail = errorDetail
+        if isinstance(errorCode, int):
+            self.errorCode = errorCode
+
+        if self.execute >= self.retry:
+            self.triggerState = self.TriggerStateChoice.init
+            self.updateState(self.TaskStateChoice.fail)
+            return True
+
+        self.retryTime = currentStamp() + self.delay
+        self.updateState(self.TaskStateChoice.error)
         return True
 
     def setSuccess(self, result: any = None) -> bool:
-        if not self.taskState == self.StateChoice.running:
+        if not self.taskState == self.TaskStateChoice.running:
             return False
-        # if isinstance(result, str):
-        #     self.result = result
+
         if result is not None:
             self.result = result
-        self.endTime = getCurrentTime()
-        self.setState(self.StateChoice.success)
+
+        self.endTime = currentStamp()
+        self.triggerState = self.TriggerStateChoice.init
+        self.updateState(self.TaskStateChoice.success)
         return True
 
 
-TaskRec.objects.filter(
-    retry__lte=getCurrentTime(),
+TaskRecQueueFields = (
+    'taskSn', 'type', 'priority',
+    'func', 'args', 'kwargs', 'combine', 'callback', 'timeLimit', 'priority',
 )

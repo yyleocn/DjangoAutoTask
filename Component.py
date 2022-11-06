@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import time
 
 from pydoc import safeimport
@@ -76,24 +78,40 @@ autoTaskConfig = getattr(settings, 'AUTO_TASK', dict())
 class AutoTaskConfig:
     # manager
     authKey: bytes
-    handler_class: str = None
+    handlerClass: str = None
 
     host: str = 'localhost'
     port: int = 8800
-    queueSize: int = 100
+    queueSize: int = 500
     managerTimeLimit: int = 300
 
     # cluster
     name: str = 'AutoTask'
     poolSize: int = 2
-    processLifeTime: int = 600
-    taskExpire: int = 10
+    workerLifeTime: int = 600
+
+    # task
+    taskTimeLimit: int = 20
+
+    __handler = None
+
+    def __getattr__(self, key):
+        if key == 'handler':
+            from .Handler import AutoTaskHandler
+            object.__setattr__(self, 'handler', AutoTaskHandler())
+            return self.handler
+        raise AttributeError(f''''{self.__class__.__name__}' object has no attribute '{key}' ''')
+
+    def __post_init__(self):
+        if self.handlerClass is not None:
+            object.__setattr__(self, 'handler', importComponent(self.handlerClass)())
 
 
 CONFIG = AutoTaskConfig(**autoTaskConfig)
 
 
 # -------------------- read only dict --------------------
+
 class ReadonlyDict(dict):
     """
     Readonly Dict, base on python dict type.
@@ -118,7 +136,7 @@ class ReadonlyDict(dict):
 
 # -------------------- template --------------------
 @dataclass(frozen=True)
-class SubProcessConfig:
+class WorkerProcessConfig:
     sn: int
     taskManager: BaseManager
     shutdownEvent: Event
@@ -130,13 +148,46 @@ class SubProcessConfig:
 class TaskConfig:
     sn: int
     func: str
-    expire: int
+    timeLimit: int
 
     args: str | None = None
     kwargs: str | None = None
     combine: int | None = None
 
     callback: str | None = None
+
+    # -------------------- TaskConfig --------------------
+    def unpack(self) -> tuple[Callable, list, dict]:
+        try:
+            func: Callable = importFunction(self.func)
+        except:
+            raise Exception('Invalid task function')
+        if not callable(func):
+            raise Exception('Invalid task function')
+
+        args: list
+        try:
+            if self.args:
+                args = CONFIG.handler.deserialize(self.args)
+            else:
+                args: list = list()
+        except:
+            raise Exception('Invalid task args')
+        if not isinstance(args, list):
+            raise Exception('Invalid task args')
+
+        kwargs: dict
+        try:
+            if self.kwargs:
+                kwargs = CONFIG.handler.deserialize(self.kwargs)
+            else:
+                kwargs = dict()
+        except:
+            raise Exception('Invalid task kwargs')
+        if not isinstance(kwargs, dict):
+            raise Exception('Invalid task kwargs')
+
+        return func, args, kwargs
 
 
 @dataclass
@@ -146,7 +197,7 @@ class TaskInfo:
     config: TaskConfig
 
     combine: int = None
-    expireTime: int = None
+    timeout: int = None
     executor: str = None
     done: bool = False
 
@@ -155,15 +206,11 @@ def currentTimeStr():
     return f'''{time.strftime('%Y-%m-%d_%H:%M:%S', time.localtime())}'''
 
 
-# class TaskException(BaseException):
-#     def __init__(self, *_, code: int, reason: str, ):
-#         pass
-
-class ProxyExpireException(Exception):
+class ProxyTimeout(Exception):
     pass
 
 
-def proxyFunctionCall(func: Callable, *args, retry=5, **kwargs):
+def remoteProxyCall(func: Callable, *args, retry=5, **kwargs):
     retryCounter = 0
     while retryCounter < retry + 1:
         try:
@@ -172,13 +219,13 @@ def proxyFunctionCall(func: Callable, *args, retry=5, **kwargs):
             print(f'  Proxy function {func.__name__} call error: {err_}')
             retryCounter = retryCounter + 1
             time.sleep(1)
-    raise ProxyExpireException(f'TaskManager call {func.__name__} fail')
+    raise ProxyTimeout(f'TaskManager call {func.__name__} fail')
 
 
 __all__ = (
     'CONFIG',
     'TaskConfig', 'ReadonlyDict',
     'importComponent', 'importFunction',
-    'SubProcessConfig', 'TaskConfig', 'TaskInfo',
-    'currentTimeStr', 'proxyFunctionCall', 'ProxyExpireException',
+    'WorkerProcessConfig', 'TaskConfig', 'TaskInfo',
+    'currentTimeStr', 'remoteProxyCall', 'ProxyTimeout',
 )

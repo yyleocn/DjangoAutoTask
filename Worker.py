@@ -3,11 +3,12 @@ import signal
 
 from multiprocessing import current_process, Event
 
-from .Component import SubProcessConfig, currentTimeStr, CONFIG, proxyFunctionCall, ProxyExpireException, TaskConfig
+from .Component import WorkerProcessConfig, currentTimeStr, CONFIG, remoteProxyCall, ProxyTimeout, TaskConfig
+from .models import TaskRec
 from .Handler import AutoTaskHandler
 
 
-def workerFunc(workerConfig: SubProcessConfig, *args, **kwargs):
+def workerFunc(workerConfig: WorkerProcessConfig, *args, **kwargs):
     initTime = time.time()
     pid = current_process().pid
     workerStopEvent = Event()
@@ -36,7 +37,7 @@ def workerFunc(workerConfig: SubProcessConfig, *args, **kwargs):
         currentTime = time.time()
 
         # -------------------- work process life time --------------------
-        if currentTime - initTime > CONFIG.processLifeTime:
+        if currentTime - initTime > CONFIG.workerLifeTime:
             print(f'Worker {processID} life end, exit for next')
             exit()
 
@@ -45,74 +46,66 @@ def workerFunc(workerConfig: SubProcessConfig, *args, **kwargs):
 
         try:
             # -------------------- get task config --------------------
-            taskConfig: TaskConfig = proxyFunctionCall(
+            taskConfig: TaskConfig = remoteProxyCall(
                 func=workerConfig.taskManager.getTask,
                 workerName=f'{workerConfig.localName}-{processID}',
-            )
+            )  # 从 manager 获取 taskConfig
 
             # -------------------- refresh manager check time --------------------
             managerCheckTime = currentTime
 
-            match taskConfig:
-                case 1:
-                    # no task in manager waiting for a long time.
-                    time.sleep(5)
-                    continue
-                case -1:
-                    # task manager is busy, waiting for a short time.
-                    time.sleep(0.5)
-                    continue
+            if taskConfig == 1:  # 1 表示目前没用任务，暂停 5 秒
+                time.sleep(5)
+                continue
+
+            if taskConfig == -1:  # -1 表示忙碌状态，暂停 0.5 秒
+                time.sleep(0.5)
+                continue
 
             # -------------------- config check & unpack --------------------
             print(f'Process {processID} get task {taskConfig.sn}')
             try:
-                runConfig = AutoTaskHandler.configUnpack(taskConfig)
+                taskFunc, taskArgs, taskKwargs = taskConfig.unpack()  # 解析 taskConfig 的数据
             except:
                 print(f'  Task  {taskConfig.sn} config invalid')
-                proxyFunctionCall(
-                    workerConfig.taskManager.invalidConfig,
-                    taskSn=taskConfig.sn
-                )
+                remoteProxyCall(workerConfig.taskManager.invalidConfig, taskSn=taskConfig.sn)  # 发送 invalidConfig 错误
                 continue
 
-            # -------------------- send expire time --------------------
-            workerConfig.pipe.send(('expireTime', currentTime + taskConfig.expire))
+            # -------------------- send time limit --------------------
+            workerConfig.pipe.send(('timeLimit', currentTime + taskConfig.timeLimit))
 
             try:
                 # -------------------- executor task --------------------
-                taskFunc = runConfig['func']
-                result = taskFunc(
-                    *runConfig['args'],
-                    **runConfig['kwargs']
-                )
+                result = taskFunc(*taskArgs, **taskKwargs)
             except Exception as err_:
                 # -------------------- after crash --------------------
                 print(f'  Task {taskConfig.sn} run error: {err_}')
-                proxyFunctionCall(
+                remoteProxyCall(
                     workerConfig.taskManager.taskError,
                     taskSn=taskConfig.sn,
-                    errorText=str(err_),
-                )
+                    errorDetail=str(err_),
+                    errorCode=TaskRec.ErrorCodeChoice.crash,
+                )  # 发送 taskError 错误
                 continue
 
             print(f'  Task {taskConfig.sn} success')
 
             # -------------------- send result --------------------
-            proxyFunctionCall(
+            remoteProxyCall(
                 workerConfig.taskManager.taskSuccess,
                 taskSn=taskConfig.sn,
                 result=result,
-            )
+            )  # 发送 taskSuccess
 
-        # -------------------- catch the manager expire exception --------------------
-        except ProxyExpireException as err_:
-            print(f'Task manager expire @ worker {processID}')
+        # -------------------- catch the manager timeout exception --------------------
+        except ProxyTimeout as err_:
+            print(f'Task manager timeout @ worker {processID}')
 
-            # -------------------- task manager expire --------------------
+            # -------------------- task manager timeout --------------------
             if currentTime - managerCheckTime < CONFIG.managerTimeLimit:
                 time.sleep(5)
             else:
-                print(f'Task manager closed, worker {processID} exit')
+                print(f'Task manager timeout, worker {processID} exit')
                 exit()
 
         except Exception as err_:

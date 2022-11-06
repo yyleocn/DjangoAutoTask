@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import time
 import signal
 from operator import attrgetter
@@ -34,9 +36,9 @@ class TaskManager:
 
         print(f'Task manager {self.pid} init')
 
-        if CONFIG.handler_class:
+        if CONFIG.handlerClass:
             try:
-                handlerClass = importComponent(CONFIG.handler_class)
+                handlerClass = importComponent(CONFIG.handlerClass)
             except:
                 raise Exception('Handler class not exist')
             if not issubclass(handlerClass, AutoTaskHandler):
@@ -81,11 +83,10 @@ class TaskManager:
         for taskInfo in self.__taskQueue:
             if taskInfo.done:
                 continue
-            if taskInfo.expireTime is None:
+            if taskInfo.timeout is None:
                 continue
-            if taskInfo.expireTime + 5 < currentTime:
-                taskInfo.expireTime = None
-                self.taskExpire(taskSn=taskInfo.taskSn)
+            if taskInfo.timeout + 5 < currentTime:
+                self.taskTimeout(taskSn=taskInfo.taskSn)
                 self.removeTask(taskSn=taskInfo.taskSn)
 
         if not self.isRunning():
@@ -151,12 +152,10 @@ class TaskManager:
 
         # --------------- lock the task --------------------
         selectTask.executor = workerName
-        selectTask.expireTime = int(time.time() + selectTask.config.expire)
 
         # --------------- set task running to db --------------------
-        self.__handler.taskRunning(
+        selectTask.timeout = self.__handler.setTaskRunning(
             taskSn=selectTask.taskSn,
-            expire=selectTask.config.expire,
             executorName=selectTask.executor,
         )
 
@@ -175,19 +174,19 @@ class TaskManager:
     def taskSuccess(self, *_, taskSn: int = None, result: any = None, ):
         print(f'  Task {taskSn} success, result is {result}')
         self.removeTask(taskSn)
-        return self.__handler.taskSuccess(taskSn=taskSn, result=result, )
+        return self.__handler.setTaskRecSuccess(taskSn=taskSn, result=result, )
 
-    def taskError(self, *_, taskSn: int, errorText: str, ):
-        print(f'  Task {taskSn} error: {errorText}')
+    def taskError(self, *_, taskSn: int, errorDetail: str, errorCode: int):
+        print(f'  Task {taskSn} error: {errorDetail}')
         self.removeTask(taskSn)
-        return self.__handler.taskError(taskSn=taskSn, errorText=errorText)
+        return self.__handler.setTaskRecError(taskSn=taskSn, errorDetail=errorDetail, errorCode=errorCode)
 
-    def taskExpire(self, *_, taskSn: int, ):
-        print(f'  Task {taskSn} expire')
-        return self.__handler.taskExpire(taskSn=taskSn)
+    def taskTimeout(self, *_, taskSn: int, ):
+        print(f'  Task {taskSn} timeout')
+        return self.__handler.setTaskTimeout(taskSn=taskSn)
 
-    def invalidConfig(self, *_, taskSn: int, errorText: str, ):
-        return self.__handler.taskInvalidConfig(taskSn=taskSn, errorText=errorText, )
+    def invalidConfig(self, *_, taskSn: int):
+        return self.__handler.setTaskRecInvalidConfig(taskSn=taskSn)
 
     def ping(self, state, *_, ):
         if isinstance(state, dict):

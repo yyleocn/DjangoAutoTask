@@ -4,7 +4,7 @@ from multiprocessing import Event, current_process, Pipe, parent_process, Proces
 from multiprocessing.managers import BaseManager
 from typing import Callable
 
-from AutoTask.Component import CONFIG, currentTimeStr, SubProcessConfig
+from AutoTask.Component import CONFIG, currentTimeStr, WorkerProcessConfig
 
 
 # -------------------- sub process --------------------
@@ -24,7 +24,7 @@ class WorkerProcess:
         self.__shutdownEvent = shutdownEvent
         self.__processFunc = processFunc
 
-        self.__processExpireTime: int = time.time() + CONFIG.taskExpire * 2
+        self.__processExpireTime: int = time.time() + CONFIG.taskTimeLimit * 2
         self.__processPipe, self.__pipe = Pipe()
 
         self.__localName: str = localName
@@ -36,12 +36,12 @@ class WorkerProcess:
             while self.__pipe.poll():
                 _ = self.__pipe.recv()
 
-            self.__processExpireTime = time.time() + CONFIG.taskExpire * 2
+            self.__processExpireTime = time.time() + CONFIG.taskTimeLimit * 2
 
             self.__process = Process(
                 target=self.__processFunc,
                 args=(
-                    SubProcessConfig(
+                    WorkerProcessConfig(
                         sn=self.__sn,
                         shutdownEvent=self.__shutdownEvent,
                         taskManager=self.__taskManager,
@@ -69,8 +69,8 @@ class WorkerProcess:
             code, value = self.__pipe.recv()
             match code:
                 case 'alive':
-                    self.__processExpireTime = value + CONFIG.taskExpire
-                case 'expireTime':
+                    self.__processExpireTime = value + CONFIG.taskTimeLimit
+                case 'timeLimit':
                     self.__processExpireTime = value
 
         if self.__processExpireTime < time.time():
@@ -80,7 +80,7 @@ class WorkerProcess:
         if not self.isAlive():
             return True
 
-        print(f'-- Worker {self.__sn}|{self.__process.pid} expire, terminate')
+        print(f'-- Worker {self.__sn}|{self.__process.pid} timeout, terminate')
         self.__process.terminate()
         time.sleep(0.5)
 
