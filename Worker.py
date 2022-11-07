@@ -72,7 +72,7 @@ def workerFunc(workerConfig: WorkerProcessConfig, *args, **kwargs):
                 continue
 
             # -------------------- send time limit --------------------
-            workerConfig.pipe.send(('timeLimit', currentTime + taskConfig.timeLimit))
+            workerConfig.pipe.send(('timeLimit', taskConfig.timeLimit))
 
             try:
                 # -------------------- executor task --------------------

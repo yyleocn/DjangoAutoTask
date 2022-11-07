@@ -13,21 +13,11 @@ from multiprocessing.managers import BaseManager
 from django.conf import settings
 
 
+def currentStamp() -> int:
+    return int(time.time())
+
+
 # -------------------- import component by string --------------------
-class ErrorDuringImport(Exception):
-    """
-    Errors that occurred while trying to import something to document it.
-    """
-
-    def __init__(self, filename, exc_info):
-        self.filename = filename
-        self.exc, self.value, self.tb = exc_info
-
-    def __str__(self):
-        exc = self.exc.__name__
-        return 'problem in %s - %s: %s' % (self.filename, exc, self.value)
-
-
 importCache = {}
 
 
@@ -81,7 +71,7 @@ class AutoTaskConfig:
     handlerClass: str = None
 
     host: str = 'localhost'
-    port: int = 8800
+    port: int = 8890
     queueSize: int = 500
     managerTimeLimit: int = 300
 

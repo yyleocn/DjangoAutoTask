@@ -45,7 +45,7 @@ class Command(BaseCommand):
 
         workerCluster = WorkerCluster(
             managerConn=managerClient,
-            processFunc=workerFunc,
+            workerFunc=workerFunc,
         )
         return workerCluster
 
@@ -72,6 +72,7 @@ class Command(BaseCommand):
 
     @no_translations
     def runCluster(self):
+        print('Cluster init.')
         workerCluster = self.workerClusterInit()
         workerCluster.run()
 

@@ -114,7 +114,7 @@ class TaskScheme(TaskFieldPublic):
     interval = models.PositiveIntegerField(null=True)  # 执行间隔
 
     currentTask = models.ForeignKey(
-        to="TaskRec", null=True, on_delete=models.SET_NULL, related_name='taskScheme',
+        to="TaskRec", null=True, on_delete=models.SET_NULL, related_name='currentTaskScheme',
     )  # 当前任务
 
     taskRecRetain = models.PositiveIntegerField(null=False, default=86400 * 7)  # 任务保留时间

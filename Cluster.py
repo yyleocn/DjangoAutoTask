@@ -4,91 +4,95 @@ from multiprocessing import Event, current_process, Pipe, parent_process, Proces
 from multiprocessing.managers import BaseManager
 from typing import Callable
 
-from AutoTask.Component import CONFIG, currentTimeStr, WorkerProcessConfig
+from .Component import CONFIG, currentTimeStr, WorkerProcessConfig, currentStamp
 
 
 # -------------------- sub process --------------------
 class WorkerProcess:
-    __process = None
 
     def __init__(
             self, *_,
-            sn: int,
-            manager: BaseManager,
-            shutdownEvent,
-            processFunc,
-            localName: str,
+            sn: int, localName: str, workerFunc,
+            manager: BaseManager, shutdownEvent,
     ):
         self.__sn = sn
+        self.__workerProcess: Process | None = None
         self.__taskManager = manager
         self.__shutdownEvent = shutdownEvent
-        self.__processFunc = processFunc
+        self.__workerFunc = workerFunc
 
-        self.__processExpireTime: int = time.time() + CONFIG.taskTimeLimit * 2
-        self.__processPipe, self.__pipe = Pipe()
+        self.__workerTimeLimit: int = 0
+        self.__workerPipe, self.__pipe = Pipe()
 
         self.__localName: str = localName
 
         self.createProcess()
 
+    def refreshWorkerTimeLimit(self, timeLimit=None):
+        if timeLimit is None:
+            self.__workerTimeLimit = currentStamp() + CONFIG.taskTimeLimit + 2
+            return
+        self.__workerTimeLimit = currentStamp() + timeLimit + 2
+
     def createProcess(self):
-        if not parent_process():
-            while self.__pipe.poll():
-                _ = self.__pipe.recv()
+        if parent_process():
+            print('Only cluster process can create worker.')
+            return
 
-            self.__processExpireTime = time.time() + CONFIG.taskTimeLimit * 2
+        while self.__pipe.poll():
+            _ = self.__pipe.recv()
 
-            self.__process = Process(
-                target=self.__processFunc,
-                args=(
-                    WorkerProcessConfig(
-                        sn=self.__sn,
-                        shutdownEvent=self.__shutdownEvent,
-                        taskManager=self.__taskManager,
-                        pipe=self.__processPipe,
-                        localName=self.__localName,
-                    ),
+        self.refreshWorkerTimeLimit()
+
+        self.__workerProcess = Process(
+            target=self.__workerFunc,
+            args=(
+                WorkerProcessConfig(
+                    sn=self.__sn,
+                    shutdownEvent=self.__shutdownEvent,
+                    taskManager=self.__taskManager,
+                    pipe=self.__workerPipe,
+                    localName=self.__localName,
                 ),
-            )
-            self.__process.start()
-            time.sleep(0.5)
+            ),
+        )
+        self.__workerProcess.start()
 
-        else:
-            print('This is a sub process')
+        time.sleep(0.5)
 
     def isAlive(self):
-        if not self.__process:
+        if not self.__workerProcess:
             return False
-        return self.__process.is_alive()
+        return self.__workerProcess.is_alive()
 
     def checkProcess(self):
-        if not self.isAlive() and not self.__shutdownEvent.is_set():
-            self.createProcess()
-
         while self.__pipe.poll():
             code, value = self.__pipe.recv()
             match code:
                 case 'alive':
-                    self.__processExpireTime = value + CONFIG.taskTimeLimit
+                    self.refreshWorkerTimeLimit()
                 case 'timeLimit':
-                    self.__processExpireTime = value
+                    self.refreshWorkerTimeLimit(value)
 
-        if self.__processExpireTime < time.time():
-            self.processTerminate()
+        if not self.isAlive() and not self.__shutdownEvent.is_set():
+            self.createProcess()
 
-    def processTerminate(self):
+        if self.__workerTimeLimit < time.time():
+            self.workerTerminate()
+
+    def workerTerminate(self):
         if not self.isAlive():
             return True
 
-        print(f'-- Worker {self.__sn}|{self.__process.pid} timeout, terminate')
-        self.__process.terminate()
+        print(f'-- Worker {self.__sn}|{self.__workerProcess.pid} timeout, terminate')
+        self.__workerProcess.terminate()
         time.sleep(0.5)
 
     @property
     def pid(self):
         if not self.isAlive():
             return None
-        return self.__process.pid
+        return self.__workerProcess.pid
 
     @property
     def sn(self):
@@ -98,11 +102,8 @@ class WorkerProcess:
 # -------------------- worker cluster --------------------
 class WorkerCluster:
     def __init__(
-            self, *_,
-            managerConn: BaseManager = None,
-            localName: str = CONFIG.name,
-            poolSize: int = CONFIG.poolSize,
-            processFunc: Callable,
+            self, *_, managerConn: BaseManager = None, workerFunc: Callable,
+            localName: str = CONFIG.name, poolSize: int = CONFIG.poolSize,
     ):
         if managerConn is None:
             raise Exception('Invalid task manager')
@@ -119,11 +120,11 @@ class WorkerCluster:
         # set the exitEvent() when managerStatus < 0 or exit = True
 
         self.__managerConn: BaseManager = managerConn
-        self.__processFunc = processFunc
+        self.__workerFunc = workerFunc
 
         self.__processCounter = 0
 
-        def shutdownHandler(*_, ):
+        def shutdownHandler(*_):
             print(f'Cluster {self.pid} receive shutdown signal @ {currentTimeStr()}')
             self.shutdown()
 
@@ -135,10 +136,11 @@ class WorkerCluster:
             if self.__shutdownEvent.is_set():
                 break
             try:
+                print(f'Cluster {self.pid} connecting task manager.')
                 self.__managerConn.connect()
                 break
             except Exception as err_:
-                print(f'Cluster {self.pid} connect task manager fail, waiting')
+                print(f'Connect fail, waiting for retry.')
                 time.sleep(5)
 
         print(f'Cluster {self.pid} start to create process, pool size is {self.__poolSize}')
@@ -154,7 +156,7 @@ class WorkerCluster:
             process = WorkerProcess(
                 sn=self.__processCounter,
                 shutdownEvent=self.__shutdownEvent,
-                processFunc=self.__processFunc,
+                workerFunc=self.__workerFunc,
                 manager=self.__managerConn,
                 localName=self.__localName,
             )
@@ -200,7 +202,7 @@ class WorkerCluster:
                     managerCheckTime = time.time()
                 except Exception as err_:
                     print(f'Cluster {self.pid} connect task manager fail: {err_}')
-                    time.sleep(2)
+                    time.sleep(5)
                     continue
 
             for subProcess in self.__processPool:
