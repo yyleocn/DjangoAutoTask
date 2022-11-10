@@ -30,6 +30,11 @@ class TimeStampField(models.BigIntegerField):
     pass
 
 
+# --------------------------------------------------------------------------------
+#
+#                     Public
+#
+# --------------------------------------------------------------------------------
 class TaskFieldPublic(models.Model):
     # -------------------- requirement --------------------
     createTime = TimeStampField(null=False, default=currentStamp)
@@ -38,11 +43,11 @@ class TaskFieldPublic(models.Model):
     name = models.CharField(max_length=50, null=True, )  # 作业名称
     tag = models.JSONField(max_length=50, null=True, )  # 标签
 
-    planTime = TimeStampField(null=False, default=0)  # 计划时间
+    planTime = TimeStampField(null=False, default=0)  # 计划时间，默认为 0 表示立即执行
 
     timeLimit = models.SmallIntegerField(null=False, default=taskTimeLimit)  # 运行时限
-    delay = models.SmallIntegerField(default=10, null=False, )  # 延迟
-    retry = models.SmallIntegerField(default=0)  # 重试
+    retryDelay = models.SmallIntegerField(default=10, null=False, )  # 重试延迟
+    retryLimit = models.SmallIntegerField(default=0)  # 重试次数限制
 
     # -------------------- type --------------------
     class TypeChoice(models.IntegerChoices):
@@ -67,8 +72,7 @@ class TaskFieldPublic(models.Model):
     # -------------------- task config --------------------
     func = models.CharField(null=False, blank=False, max_length=50, )  # func location string
 
-    successTrigger = models.CharField(null=True, blank=False, max_length=50, )  # 任务成功的触发器，func location string
-    failTrigger = models.CharField(null=True, blank=False, max_length=50, )  # 任务失败的触发器，func location string
+    trigger = models.CharField(null=True, blank=False, max_length=50, )  # success / fail 触发器，func location string
 
     combine = models.BigIntegerField(null=True)  # combine key
 
@@ -84,6 +88,11 @@ class TaskFieldPublic(models.Model):
         abstract = True
 
 
+# --------------------------------------------------------------------------------
+#
+#                     TaskPackage
+#
+# --------------------------------------------------------------------------------
 class TaskPackage(TaskFieldPublic):
     taskPackageSn = models.BigAutoField(primary_key=True, )
 
@@ -98,13 +107,21 @@ class TaskPackage(TaskFieldPublic):
         queryRes = TaskRec.objects.filter(taskPackage_id=self.taskPackageSn).values('state')
 
     func = None
-    argsArray = None
+    args = None
     kwargs = None
-    successTrigger = None
     combine = None
     result = None
 
+    timeLimit = None
+    retryDelay = None
+    retryLimit = None
 
+
+# --------------------------------------------------------------------------------
+#
+#                     TaskScheme
+#
+# --------------------------------------------------------------------------------
 class TaskScheme(TaskFieldPublic):
     taskSchemeSn = models.AutoField(primary_key=True)  # scheme sn
 
@@ -172,13 +189,18 @@ class TaskScheme(TaskFieldPublic):
             kwargs=self.kwargs,
 
             timeLimit=self.timeLimit,
-            delay=self.delay,
-            retry=self.retry,
+            delay=self.retryDelay,
+            retry=self.retryLimit,
         )
         nextTask.save()
         return nextTask
 
 
+# --------------------------------------------------------------------------------
+#
+#                     TaskRec
+#
+# --------------------------------------------------------------------------------
 class TaskRec(TaskFieldPublic):
     taskSn = models.BigAutoField(primary_key=True)  # task sn
 
@@ -226,9 +248,9 @@ class TaskRec(TaskFieldPublic):
 
     errorCode = models.SmallIntegerField(null=True, choices=ErrorCodeChoice.choices, )  # 错误代码
     errorDetail = models.TextField(null=True, blank=False, )  # 错误信息
-    # -------------------- time stamp --------------------
 
-    retryTime = TimeStampField(null=True)  # 重试时间
+    # -------------------- time stamp --------------------
+    retryTime = TimeStampField(null=False, default=0)  # 重试时间
     timeout = TimeStampField(null=True)  # 超时时间
 
     startTime = TimeStampField(null=True)  # 开始时间
@@ -261,12 +283,10 @@ class TaskRec(TaskFieldPublic):
             querySize = size
 
         queryConfig = [
-            Q(state__gte=cls.TaskStateChoice.error, state__lt=cls.TaskStateChoice.success, ),
-            ~(Q(state=cls.TaskStateChoice.error) & Q(retry__gt=currentTime)),
-            Q(planTime__lte=currentTime),
-            Q(retryTime__isnull=True) | Q(retryTime__lte=currentTime),
-            Q(pause=False),
-            Q(cancel=False),
+            Q(state__gte=cls.TaskStateChoice.error, state__lt=cls.TaskStateChoice.success, ),  # 状态介于 error 和 success 之间
+            ~(Q(state=cls.TaskStateChoice.error) & Q(retryTime__gt=currentTime)),  # 状态不为 error
+            Q(planTime__lte=currentTime, retryTime__lte=currentTime),  # planTime / retryTime 小于当前时间
+            Q(pause=False, cancel=False),
         ]
 
         if isinstance(taskType, int):
@@ -329,12 +349,12 @@ class TaskRec(TaskFieldPublic):
         if isinstance(errorCode, int):
             self.errorCode = errorCode
 
-        if self.execute >= self.retry:
+        if self.execute >= self.retryLimit:
             self.triggerState = self.TriggerStateChoice.init
             self.updateState(self.TaskStateChoice.fail)
             return True
 
-        self.retryTime = currentStamp() + self.delay
+        self.retryTime = currentStamp() + self.retryDelay
         self.updateState(self.TaskStateChoice.error)
         return True
 
