@@ -59,18 +59,18 @@ class AutoTaskHandler:
         return taskRec.setSuccess(result=cls.serialize(result))
 
     @classmethod
-    def setTaskRecInvalidConfig(cls, *_, taskSn: int):
+    def setTaskRecInvalidConfig(cls, *_, taskSn: int, detail: str):
         taskRec = TaskRec.taskRecManage(taskSn=taskSn)
         if taskRec is None:
             return False
-        return taskRec.invalidConfig()
+        return taskRec.setError(errorCode=TaskRec.ErrorCodeChoice.invalidConfig, errorDetail=detail, )
 
     @classmethod
-    def setTaskRecError(cls, *_, taskSn: int, errorDetail: str, errorCode: int):
+    def setTaskRecCrash(cls, *_, taskSn: int, detail: str):
         taskRec = TaskRec.taskRecManage(taskSn=taskSn)
         if taskRec is None:
             return False
-        return taskRec.setError(errorDetail=errorDetail, errorCode=errorCode)
+        return taskRec.setError(errorCode=TaskRec.ErrorCodeChoice.crash, errorDetail=detail, )
 
     @classmethod
     def setTaskTimeout(cls, *_, taskSn: int):
@@ -78,10 +78,7 @@ class AutoTaskHandler:
         if taskRec is None:
             return False
 
-        return taskRec.setError(
-            errorDetail='Task timeout',
-            errorCode=TaskRec.ErrorCodeChoice.timeout
-        )
+        return taskRec.setError(errorCode=TaskRec.ErrorCodeChoice.timeout)
 
     @classmethod
     def setTaskRunning(cls, *_, taskSn: int, executorName: str) -> int | None:

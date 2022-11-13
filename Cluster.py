@@ -4,7 +4,7 @@ from multiprocessing import Event, current_process, Pipe, parent_process, Proces
 from multiprocessing.managers import BaseManager
 from typing import Callable
 
-from .Component import CONFIG, currentTimeStr, WorkerProcessConfig, currentStamp
+from .Component import CONFIG, currentTimeStr, WorkerProcessConfig, getNowStamp
 
 
 # -------------------- sub process --------------------
@@ -30,9 +30,9 @@ class WorkerProcess:
 
     def refreshWorkerTimeLimit(self, timeLimit=None):
         if timeLimit is None:
-            self.__workerTimeLimit = currentStamp() + CONFIG.taskTimeLimit + 2
+            self.__workerTimeLimit = getNowStamp() + CONFIG.taskTimeLimit + 2
             return
-        self.__workerTimeLimit = currentStamp() + timeLimit + 2
+        self.__workerTimeLimit = getNowStamp() + timeLimit + 2
 
     def createProcess(self):
         if parent_process():

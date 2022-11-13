@@ -6,7 +6,7 @@ from croniter import croniter
 from django.db import models
 from django.db.models import QuerySet, Q
 
-from .Component import CONFIG
+from .Component import CONFIG, timeStampToString
 
 
 def taskTimeLimit() -> int:
@@ -168,15 +168,12 @@ class TaskScheme(TaskFieldPublic):
 
         self.save()
 
-    def stampToStr(self, stamp: int):
-        return time.strftime('%Y%m%d-%H%M%S', time.localtime(stamp))
-
     def taskRecCreate(self, planTime: int | float, scheme: TaskScheme) -> TaskRec:
         nextTask = TaskRec(
             createUser=self.createUser,
 
             type=TaskRec.TypeChoice.scheme,
-            name=f'{self.name}-{self.stampToStr(planTime)}',
+            name=f'''{self.name}-{timeStampToString(planTime, formatStr='%Y%m%d-%H%M%S')}''',
             tag=self.tag,
 
             scheme=scheme,
@@ -247,6 +244,7 @@ class TaskRec(TaskFieldPublic):
         invalidConfig = 300001
 
     errorCode = models.SmallIntegerField(null=True, choices=ErrorCodeChoice.choices, )  # 错误代码
+    errorMessage = models.CharField(max_length=20, null=True, blank=False, )  # 错误信息
     errorDetail = models.TextField(null=True, blank=False, )  # 错误信息
 
     # -------------------- time stamp --------------------
@@ -283,8 +281,7 @@ class TaskRec(TaskFieldPublic):
             querySize = size
 
         queryConfig = [
-            Q(state__gte=cls.TaskStateChoice.error, state__lt=cls.TaskStateChoice.success, ),  # 状态介于 error 和 success 之间
-            ~(Q(state=cls.TaskStateChoice.error) & Q(retryTime__gt=currentTime)),  # 状态不为 error
+            Q(state__gt=cls.TaskStateChoice.fail, state__lt=cls.TaskStateChoice.success, ),  # 状态介于 fail 和 success 之间
             Q(planTime__lte=currentTime, retryTime__lte=currentTime),  # planTime / retryTime 小于当前时间
             Q(pause=False, cancel=False),
         ]
@@ -319,15 +316,6 @@ class TaskRec(TaskFieldPublic):
         self.taskStateTime = currentStamp()
         self.save()
 
-    def invalidConfig(self) -> bool:
-        if self.taskState != self.TaskStateChoice.running:
-            return False
-
-        self.errorDetail = 'Invalid config'
-        self.errorCode = self.ErrorCodeChoice.invalidConfig
-        self.updateState(self.TaskStateChoice.fail)
-        return True
-
     def setRunning(self, executorName: str) -> int:
         if self.taskState >= self.TaskStateChoice.success:
             return False
@@ -341,13 +329,18 @@ class TaskRec(TaskFieldPublic):
 
         return self.timeout
 
-    def setError(self, errorDetail: str, errorCode: int = None) -> bool:
+    def setError(self, errorCode: ErrorCodeChoice, errorMessage: str | None = None, errorDetail: str = None) -> bool:
         if not self.taskState == self.TaskStateChoice.running:
             return False
 
-        self.errorDetail = errorDetail
-        if isinstance(errorCode, int):
+        self.errorDetail = errorCode.name
+        if isinstance(errorCode, self.ErrorCodeChoice):
             self.errorCode = errorCode
+
+        if errorCode == self.ErrorCodeChoice.invalidConfig:
+            self.errorCode = self.ErrorCodeChoice.invalidConfig
+            self.updateState(self.TaskStateChoice.fail)
+            return True
 
         if self.execute >= self.retryLimit:
             self.triggerState = self.TriggerStateChoice.init

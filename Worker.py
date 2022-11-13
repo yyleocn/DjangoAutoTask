@@ -46,7 +46,7 @@ def workerFunc(workerConfig: WorkerProcessConfig, *args, **kwargs):
 
         try:
             # -------------------- get task config --------------------
-            taskConfig: TaskConfig = remoteProxyCall(
+            taskConfig: TaskConfig | int = remoteProxyCall(
                 func=workerConfig.taskManager.getTask,
                 workerName=f'{workerConfig.localName}-{processID}',
             )  # 从 manager 获取 taskConfig
@@ -54,13 +54,14 @@ def workerFunc(workerConfig: WorkerProcessConfig, *args, **kwargs):
             # -------------------- refresh manager check time --------------------
             managerCheckTime = currentTime
 
-            if taskConfig == 1:  # 1 表示目前没用任务，暂停 5 秒
-                time.sleep(5)
+            if taskConfig == 1:
+                time.sleep(0.5)  # 1 表示忙碌状态，暂停 0.5 秒
                 continue
-
-            if taskConfig == -1:  # -1 表示忙碌状态，暂停 0.5 秒
-                time.sleep(0.5)
+            if taskConfig == 0:
+                time.sleep(5)  # 0 表示目前没有任务，暂停 5 秒
                 continue
+            if taskConfig == -1:
+                break  # 0 表示管理器进入关闭状态，退出循环
 
             # -------------------- config check & unpack --------------------
             print(f'Process {processID} get task {taskConfig.sn}')
@@ -81,11 +82,10 @@ def workerFunc(workerConfig: WorkerProcessConfig, *args, **kwargs):
                 # -------------------- after crash --------------------
                 print(f'  Task {taskConfig.sn} run error: {err_}')
                 remoteProxyCall(
-                    workerConfig.taskManager.taskError,
+                    workerConfig.taskManager.taskCrash,
                     taskSn=taskConfig.sn,
-                    errorDetail=str(err_),
-                    errorCode=TaskRec.ErrorCodeChoice.crash,
-                )  # 发送 taskError 错误
+                    detail=str(err_),
+                )  # 发送 taskCrash 错误
                 continue
 
             print(f'  Task {taskConfig.sn} success')

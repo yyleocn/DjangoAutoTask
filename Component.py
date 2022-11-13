@@ -13,8 +13,16 @@ from multiprocessing.managers import BaseManager
 from django.conf import settings
 
 
-def currentStamp() -> int:
+def getNowStamp() -> int:
     return int(time.time())
+
+
+def timeStampToString(timeStamp: int | float, formatStr: str = '%Y-%m-%d#%H:%M:%S') -> str:
+    return time.strftime(formatStr, time.localtime(timeStamp))
+
+
+def currentTimeStr(formatStr: str = '%Y%m%d%H:%M:%S'):
+    return f'''{time.strftime('%Y%m%d-%H:%M:%S', time.localtime())}'''
 
 
 # -------------------- import component by string --------------------
@@ -192,10 +200,6 @@ class TaskInfo:
     done: bool = False
 
 
-def currentTimeStr():
-    return f'''{time.strftime('%Y-%m-%d_%H:%M:%S', time.localtime())}'''
-
-
 class ProxyTimeout(Exception):
     pass
 
@@ -213,9 +217,10 @@ def remoteProxyCall(func: Callable, *args, retry=5, **kwargs):
 
 
 __all__ = (
+    'currentTimeStr', 'getNowStamp', 'timeStampToString',
     'CONFIG',
     'TaskConfig', 'ReadonlyDict',
     'importComponent', 'importFunction',
     'WorkerProcessConfig', 'TaskConfig', 'TaskInfo',
-    'currentTimeStr', 'remoteProxyCall', 'ProxyTimeout',
+    'remoteProxyCall', 'ProxyTimeout',
 )

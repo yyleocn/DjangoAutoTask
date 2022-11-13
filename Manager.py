@@ -17,7 +17,7 @@ except AppRegistryNotReady:
 
     django.setup()
 
-from .Component import *
+from .Component import (getNowStamp, TaskInfo, CONFIG, importComponent, currentTimeStr, TaskConfig, )
 from .Handler import AutoTaskHandler
 
 
@@ -77,7 +77,7 @@ class TaskManager:
         # --------------- lock queue --------------------
         self.__taskQueueLock = True
 
-        currentTime = time.time()
+        currentTime = getNowStamp()
 
         # --------------- remove overtime task --------------------
         for taskInfo in self.__taskQueue:
@@ -126,9 +126,11 @@ class TaskManager:
         self.__taskQueueLock = False
 
     def getTask(self, *args, workerName: str = None, combine: int = None, **kwargs) -> TaskConfig | int:
-        # --------------- queue lock or exit return -1 --------------------
-        if self.__taskQueueLock or not self.isRunning():
-            return -1
+        if not self.isRunning():
+            return -1  # 已关闭返回 -1
+
+        if self.__taskQueueLock:
+            return 1  # 队列锁定返回 1
 
         selectTask: TaskInfo | None = None
 
@@ -148,7 +150,7 @@ class TaskManager:
 
         # --------------- no task return 1 --------------------
         if selectTask is None:
-            return 1
+            return 0  # 没有任务返回 0
 
         # --------------- lock the task --------------------
         selectTask.executor = workerName
@@ -176,10 +178,10 @@ class TaskManager:
         self.removeTask(taskSn)
         return self.__handler.setTaskRecSuccess(taskSn=taskSn, result=result, )
 
-    def taskError(self, *_, taskSn: int, errorDetail: str, errorCode: int):
-        print(f'  Task {taskSn} error: {errorDetail}')
+    def taskCrash(self, *_, taskSn: int, detail: str, ):
+        print(f'  Task {taskSn} crash: {detail}')
         self.removeTask(taskSn)
-        return self.__handler.setTaskRecError(taskSn=taskSn, errorDetail=errorDetail, errorCode=errorCode)
+        return self.__handler.setTaskRecCrash(taskSn=taskSn, errorDetail=detail)
 
     def taskTimeout(self, *_, taskSn: int, ):
         print(f'  Task {taskSn} timeout')
