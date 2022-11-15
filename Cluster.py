@@ -1,23 +1,25 @@
 import signal
 import time
+from typing import TYPE_CHECKING
 from multiprocessing import Event, current_process, Pipe, parent_process, Process
-from multiprocessing.managers import BaseManager
 from typing import Callable
 
 from .Component import CONFIG, currentTimeStr, WorkerProcessConfig, getNowStamp
 
+if TYPE_CHECKING:
+    from .Dispatcher import DispatcherClient
+
 
 # -------------------- sub process --------------------
 class WorkerProcess:
-
     def __init__(
             self, *_,
             sn: int, localName: str, workerFunc,
-            dispatcher: BaseManager, shutdownEvent,
+            dispatcher: DispatcherClient, shutdownEvent,
     ):
         self.__sn = sn
         self.__workerProcess: Process | None = None
-        self.__taskDispatcher = dispatcher
+        self.__taskDispatcher: DispatcherClient = dispatcher
         self.__shutdownEvent = shutdownEvent
         self.__workerFunc = workerFunc
 
@@ -50,7 +52,7 @@ class WorkerProcess:
                 WorkerProcessConfig(
                     sn=self.__sn,
                     shutdownEvent=self.__shutdownEvent,
-                    taskDispatcher=self.__taskDispatcher,
+                    dispatcherClient=self.__taskDispatcher,
                     pipe=self.__workerPipe,
                     localName=self.__localName,
                 ),
@@ -102,7 +104,7 @@ class WorkerProcess:
 # -------------------- worker cluster --------------------
 class WorkerCluster:
     def __init__(
-            self, *_, dispatcherConn: BaseManager = None, workerFunc: Callable,
+            self, *_, dispatcherConn: DispatcherClient = None, workerFunc: Callable,
             localName: str = CONFIG.name, poolSize: int = CONFIG.poolSize,
     ):
         if dispatcherConn is None:
@@ -119,7 +121,7 @@ class WorkerCluster:
         self.__shutdown = False
         # set the exitEvent() when dispatcherStatus < 0 or exit = True
 
-        self.__dispatcherConn: BaseManager = dispatcherConn
+        self.__dispatcherConn: DispatcherClient = dispatcherConn
         self.__workerFunc = workerFunc
 
         self.__processCounter = 0

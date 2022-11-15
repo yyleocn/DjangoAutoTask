@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import time
 import signal
+from typing import Callable
 from operator import attrgetter
 
 from multiprocessing import (current_process, )
@@ -21,14 +22,14 @@ from .Component import (getNowStamp, TaskInfo, CONFIG, importComponent, currentT
 from .Handler import AutoTaskHandler
 
 
-#     #######                    #        #     #
-#        #                       #        ##   ##
-#        #      ######   #####   #   ##   # # # #   ######  # ####    ######   ######   #####    # ###
-#        #     #     #  #        #  #     #  #  #  #     #  ##    #  #     #  #     #  #     #   ##
-#        #     #     #   ####    ###      #     #  #     #  #     #  #     #  #     #  #######   #
-#        #     #    ##       #   #  #     #     #  #    ##  #     #  #    ##   ######  #         #
-#        #      #### #  #####    #   ##   #     #   #### #  #     #   #### #        #   #####    #
-#                                                                              #####
+#    #######                    #        #####       #                                  #               #
+#       #                       #        #    #                                         #               #
+#       #      ######   #####   #   ##   #     #   ###      #####   ######    ######  ######    #####   ######    #####    # ###
+#       #     #     #  #        #  #     #     #     #     #        #     #  #     #    #      #        #     #  #     #   ##
+#       #     #     #   ####    ###      #     #     #      ####    #     #  #     #    #      #        #     #  #######   #
+#       #     #    ##       #   #  #     #    #      #          #   #     #  #    ##    #      #        #     #  #         #
+#       #      #### #  #####    #   ##   #####     #####   #####    ######    #### #     ###    #####   #     #   #####    #
+#                                                                   #
 
 class TaskDispatcher:
     __pid: int = None
@@ -81,7 +82,7 @@ class TaskDispatcher:
         time.sleep(5)
         exit()
 
-    def refreshTaskQueue(self):
+    def refreshQueue(self):
         # --------------- lock queue --------------------
         self.__taskQueueLock = True
 
@@ -186,17 +187,19 @@ class TaskDispatcher:
         self.removeTask(taskSn)
         return self.__handler.setTaskRecSuccess(taskSn=taskSn, result=result, )
 
-    def taskCrash(self, *_, taskSn: int, detail: str, ):
-        print(f'  Task {taskSn} crash: {detail}')
+    def taskCrash(self, *_, taskSn: int, message: str, detail: str, ):
+        print(f'  Task {taskSn} crash: {message}')
         self.removeTask(taskSn)
-        return self.__handler.setTaskRecCrash(taskSn=taskSn, detail=detail)
+        return self.__handler.setTaskRecCrash(
+            taskSn=taskSn, message=message, detail=detail,
+        )
 
     def taskTimeout(self, *_, taskSn: int, ):
         print(f'  Task {taskSn} timeout')
         return self.__handler.setTaskTimeout(taskSn=taskSn)
 
-    def invalidConfig(self, *_, taskSn: int):
-        return self.__handler.setTaskRecInvalidConfig(taskSn=taskSn, detail='')
+    def invalidConfig(self, *_, taskSn: int, detail: str = None):
+        return self.__handler.setTaskRecInvalidConfig(taskSn=taskSn, detail=detail)
 
     def ping(self, state, *_, ):
         if isinstance(state, dict):
@@ -255,6 +258,10 @@ class DispatcherServer(BaseManager):
 
 class DispatcherAdmin(BaseManager):
     __methodBounded = False
+    shutdownDispatcher: Callable
+    status: Callable
+    isRunning: Callable
+    refreshTaskQueue: Callable
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -275,10 +282,18 @@ class DispatcherAdmin(BaseManager):
 
 
 class DispatcherClient(BaseManager):
+    ping: Callable
+    getTask: Callable
+
+    taskSuccess: Callable
+    taskCrash: Callable
+    taskTimeout: Callable
+    invalidConfig: Callable
+
     __methodBounded = False
     dispatcherClientFunc = (
         'ping', 'getTask',
-        'configError', 'taskSuccess', 'taskError', 'taskExpire',
+        'taskSuccess', 'taskCrash', 'taskTimeout', 'invalidConfig',
     )
 
     def __init__(self, *args, **kwargs):

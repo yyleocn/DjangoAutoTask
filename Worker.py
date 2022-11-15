@@ -1,11 +1,10 @@
 import time
 import signal
+import traceback
 
 from multiprocessing import current_process, Event
 
 from .Component import WorkerProcessConfig, currentTimeStr, CONFIG, remoteProxyCall, ProxyTimeout, TaskConfig
-from .models import TaskRec
-from .Handler import AutoTaskHandler
 
 
 def workerFunc(workerConfig: WorkerProcessConfig, *args, **kwargs):
@@ -15,7 +14,7 @@ def workerFunc(workerConfig: WorkerProcessConfig, *args, **kwargs):
     workerStopEvent.clear()
 
     processID = f'{workerConfig.sn}-{pid}'
-    workerConfig.taskDispatcher.methodBound()
+    workerConfig.dispatcherClient.methodBound()
 
     print(f'* Worker {processID} start @ {currentTimeStr()}')
 
@@ -47,7 +46,7 @@ def workerFunc(workerConfig: WorkerProcessConfig, *args, **kwargs):
         try:
             # -------------------- get task config --------------------
             taskConfig: TaskConfig | int = remoteProxyCall(
-                func=workerConfig.taskDispatcher.getTask,
+                func=workerConfig.dispatcherClient.getTask,
                 workerName=f'{workerConfig.localName}-{processID}',
             )  # 从 dispatcher 获取 taskConfig
 
@@ -69,7 +68,10 @@ def workerFunc(workerConfig: WorkerProcessConfig, *args, **kwargs):
                 taskFunc, taskArgs, taskKwargs = taskConfig.unpack()  # 解析 taskConfig 的数据
             except:
                 print(f'  Task  {taskConfig.sn} config invalid')
-                remoteProxyCall(workerConfig.taskDispatcher.invalidConfig, taskSn=taskConfig.sn)  # 发送 invalidConfig 错误
+                remoteProxyCall(
+                    workerConfig.dispatcherClient.invalidConfig,
+                    taskSn=taskConfig.sn, detail=traceback.format_exc(),
+                )  # 发送 invalidConfig 错误
                 continue
 
             # -------------------- send time limit --------------------
@@ -82,9 +84,9 @@ def workerFunc(workerConfig: WorkerProcessConfig, *args, **kwargs):
                 # -------------------- after crash --------------------
                 print(f'  Task {taskConfig.sn} run error: {err_}')
                 remoteProxyCall(
-                    workerConfig.taskDispatcher.taskCrash,
+                    workerConfig.dispatcherClient.taskCrash,
                     taskSn=taskConfig.sn,
-                    detail=str(err_),
+                    detail=traceback.format_exc(),
                 )  # 发送 taskCrash 错误
                 continue
 
@@ -92,7 +94,7 @@ def workerFunc(workerConfig: WorkerProcessConfig, *args, **kwargs):
 
             # -------------------- send result --------------------
             remoteProxyCall(
-                workerConfig.taskDispatcher.taskSuccess,
+                workerConfig.dispatcherClient.taskSuccess,
                 taskSn=taskConfig.sn,
                 result=result,
             )  # 发送 taskSuccess

@@ -4,13 +4,15 @@ import time
 
 from pydoc import safeimport
 from dataclasses import dataclass
-from typing import Callable
+from typing import Callable, TYPE_CHECKING
 
 from multiprocessing import Event
 from multiprocessing.connection import Connection
-from multiprocessing.managers import BaseManager
 
 from django.conf import settings
+
+if TYPE_CHECKING:
+    from .Dispatcher import DispatcherClient
 
 
 def getNowStamp() -> int:
@@ -136,7 +138,7 @@ class ReadonlyDict(dict):
 @dataclass(frozen=True)
 class WorkerProcessConfig:
     sn: int
-    taskDispatcher: BaseManager
+    dispatcherClient: DispatcherClient
     shutdownEvent: Event
     pipe: Connection
     localName: str

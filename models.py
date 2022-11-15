@@ -258,7 +258,7 @@ class TaskRec(TaskFieldPublic):
 
     errorCode = models.SmallIntegerField(null=True, choices=ErrorCodeChoice.choices, )  # 错误代码
     errorMessage = models.CharField(max_length=20, null=True, blank=False, )  # 错误信息
-    errorDetail = models.TextField(null=True, blank=False, )  # 错误信息
+    # errorDetail = models.TextField(null=True, blank=False, )  # 错误信息
 
     # -------------------- time stamp --------------------
     retryTime = TimeStampField(null=False, default=0)  # 重试时间
@@ -342,13 +342,18 @@ class TaskRec(TaskFieldPublic):
 
         return self.timeout
 
-    def setError(self, errorCode: ErrorCodeChoice, errorMessage: str | None = None, errorDetail: str = None) -> bool:
+    def setError(self, errorCode: ErrorCodeChoice, message: str = None, detail: str = None) -> bool:
         if not self.taskState == self.TaskStateChoice.running:
             return False
 
-        self.errorDetail = errorCode.name
         if isinstance(errorCode, self.ErrorCodeChoice):
             self.errorCode = errorCode
+
+        if isinstance(message, str):
+            self.errorMessage = message
+
+        if isinstance(detail, str):
+            self.result = detail
 
         if errorCode == self.ErrorCodeChoice.invalidConfig:
             self.errorCode = self.ErrorCodeChoice.invalidConfig
