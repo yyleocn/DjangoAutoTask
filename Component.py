@@ -74,14 +74,14 @@ autoTaskConfig = getattr(settings, 'AUTO_TASK', dict())
 
 @dataclass(frozen=True)
 class AutoTaskConfig:
-    # manager
+    # dispatcher
     authKey: bytes
     handlerClass: str = None
 
     host: str = 'localhost'
     port: int = 8890
     queueSize: int = 500
-    managerTimeLimit: int = 300
+    dispatcherTimeout: int = 300
 
     # cluster
     name: str = 'AutoTask'
@@ -136,7 +136,7 @@ class ReadonlyDict(dict):
 @dataclass(frozen=True)
 class WorkerProcessConfig:
     sn: int
-    taskManager: BaseManager
+    taskDispatcher: BaseManager
     shutdownEvent: Event
     pipe: Connection
     localName: str
@@ -213,7 +213,7 @@ def remoteProxyCall(func: Callable, *args, retry=5, **kwargs):
             print(f'  Proxy function {func.__name__} call error: {err_}')
             retryCounter = retryCounter + 1
             time.sleep(1)
-    raise ProxyTimeout(f'TaskManager call {func.__name__} fail')
+    raise ProxyTimeout(f'TaskDispatcher call {func.__name__} fail')
 
 
 __all__ = (

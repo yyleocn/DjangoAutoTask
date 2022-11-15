@@ -53,28 +53,28 @@ class AutoTaskHandler:
 
     @classmethod
     def setTaskRecSuccess(cls, *_, taskSn: int, result: any):
-        taskRec = TaskRec.taskRecManage(taskSn=taskSn)
+        taskRec = TaskRec.getTaskRec(taskSn=taskSn)
         if taskRec is None:
             return False
         return taskRec.setSuccess(result=cls.serialize(result))
 
     @classmethod
     def setTaskRecInvalidConfig(cls, *_, taskSn: int, detail: str):
-        taskRec = TaskRec.taskRecManage(taskSn=taskSn)
+        taskRec = TaskRec.getTaskRec(taskSn=taskSn)
         if taskRec is None:
             return False
         return taskRec.setError(errorCode=TaskRec.ErrorCodeChoice.invalidConfig, errorDetail=detail, )
 
     @classmethod
     def setTaskRecCrash(cls, *_, taskSn: int, detail: str):
-        taskRec = TaskRec.taskRecManage(taskSn=taskSn)
+        taskRec = TaskRec.getTaskRec(taskSn=taskSn)
         if taskRec is None:
             return False
         return taskRec.setError(errorCode=TaskRec.ErrorCodeChoice.crash, errorDetail=detail, )
 
     @classmethod
     def setTaskTimeout(cls, *_, taskSn: int):
-        taskRec = TaskRec.taskRecManage(taskSn=taskSn)
+        taskRec = TaskRec.getTaskRec(taskSn=taskSn)
         if taskRec is None:
             return False
 
@@ -85,7 +85,7 @@ class AutoTaskHandler:
         """
         根据 taskSn 设置 TaskRec 为 running 状态
         """
-        taskRec = TaskRec.taskRecManage(taskSn=taskSn)
+        taskRec = TaskRec.getTaskRec(taskSn=taskSn)
         if taskRec is None:
             return None
         return taskRec.setRunning(executorName=executorName, )

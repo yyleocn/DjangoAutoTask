@@ -21,8 +21,16 @@ from .Component import (getNowStamp, TaskInfo, CONFIG, importComponent, currentT
 from .Handler import AutoTaskHandler
 
 
-# -------------------- Task manager --------------------
-class TaskManager:
+#     #######                    #        #     #
+#        #                       #        ##   ##
+#        #      ######   #####   #   ##   # # # #   ######  # ####    ######   ######   #####    # ###
+#        #     #     #  #        #  #     #  #  #  #     #  ##    #  #     #  #     #  #     #   ##
+#        #     #     #   ####    ###      #     #  #     #  #     #  #     #  #     #  #######   #
+#        #     #    ##       #   #  #     #     #  #    ##  #     #  #    ##   ######  #         #
+#        #      #### #  #####    #   ##   #     #   #### #  #     #   #### #        #   #####    #
+#                                                                              #####
+
+class TaskDispatcher:
     __pid: int = None
 
     def __init__(self, *_, **kwargs):
@@ -34,7 +42,7 @@ class TaskManager:
         self.__pid = current_process().pid
         self.__clusterDict = {}
 
-        print(f'Task manager {self.pid} init')
+        print(f'Task dispatcher {self.pid} init')
 
         if CONFIG.handlerClass:
             try:
@@ -49,13 +57,13 @@ class TaskManager:
             self.__handler = AutoTaskHandler()
 
         def shutdownHandler(*_, ):
-            print(f'Manager {self.pid} receive stop signal @ {currentTimeStr()}')
+            print(f'Dispatcher {self.pid} receive stop signal @ {currentTimeStr()}')
             self.exit()
 
         for sig in (signal.SIGINT, signal.SIGTERM, signal.SIGILL,):
             signal.signal(sig, shutdownHandler)
 
-    def shutdownManager(self):
+    def shutdownDispatcher(self):
         self.__shutdown = True
         return 'The TaskManger is set to shutdown'
 
@@ -109,9 +117,9 @@ class TaskManager:
         ]
 
         # --------------- sort by priority --------------------
-        newQueue = [
-                       taskRec for taskRec in [*runningTask, *appendTask, ] if not taskRec.done
-                   ][:CONFIG.queueSize]
+        newQueue: list[TaskInfo] = [
+                                       taskRec for taskRec in [*runningTask, *appendTask, ] if not taskRec.done
+                                   ][:CONFIG.queueSize]
 
         # --------------- new queue sort --------------------
         newQueue.sort(key=attrgetter('priority', 'taskSn'))
@@ -120,7 +128,7 @@ class TaskManager:
         self.__taskDict = {taskRec.taskSn: taskRec for taskRec in newQueue}
         self.__taskQueue = newQueue
 
-        print(f'TaskManager refreshed queue, current count is {len(self.__taskQueue)}')
+        print(f'TaskDispatcher refreshed queue, current count is {len(self.__taskQueue)}')
 
         # --------------- unlock queue --------------------
         self.__taskQueueLock = False
@@ -181,21 +189,21 @@ class TaskManager:
     def taskCrash(self, *_, taskSn: int, detail: str, ):
         print(f'  Task {taskSn} crash: {detail}')
         self.removeTask(taskSn)
-        return self.__handler.setTaskRecCrash(taskSn=taskSn, errorDetail=detail)
+        return self.__handler.setTaskRecCrash(taskSn=taskSn, detail=detail)
 
     def taskTimeout(self, *_, taskSn: int, ):
         print(f'  Task {taskSn} timeout')
         return self.__handler.setTaskTimeout(taskSn=taskSn)
 
     def invalidConfig(self, *_, taskSn: int):
-        return self.__handler.setTaskRecInvalidConfig(taskSn=taskSn)
+        return self.__handler.setTaskRecInvalidConfig(taskSn=taskSn, detail='')
 
     def ping(self, state, *_, ):
         if isinstance(state, dict):
             clusterName = state.get('name')
             clusterPid = state.get('pid')
             clusterStatus = state.get('status')
-            print(f'Cluster {clusterName} ping task manager')
+            print(f'Cluster {clusterName} ping task dispatcher')
             self.__clusterDict[clusterName] = state
 
         else:
@@ -220,9 +228,9 @@ class TaskManager:
         }
 
 
-# -------------------- sync manager --------------------
+# -------------------- sync dispatcher --------------------
 
-class ManagerServer(BaseManager):
+class DispatcherServer(BaseManager):
     __methodBounded = False
 
     def __init__(self, *args, **kwargs):
@@ -234,18 +242,18 @@ class ManagerServer(BaseManager):
         if cls.__methodBounded:
             return
 
-        taskManager = TaskManager()
-        for name_ in taskManager.__dir__():
+        taskDispatcher = TaskDispatcher()
+        for name_ in taskDispatcher.__dir__():
             if name_[0] == '_':
                 continue
-            func_ = getattr(taskManager, name_)
+            func_ = getattr(taskDispatcher, name_)
             if callable(func_):
                 cls.register(name_, func_, )
 
         cls.__methodBounded = True
 
 
-class ManagerAdmin(BaseManager):
+class DispatcherAdmin(BaseManager):
     __methodBounded = False
 
     def __init__(self, *args, **kwargs):
@@ -257,7 +265,7 @@ class ManagerAdmin(BaseManager):
         if cls.__methodBounded:
             return
 
-        for name_, prop_ in TaskManager.__dict__.items():
+        for name_, prop_ in TaskDispatcher.__dict__.items():
             if name_[0] == '_':
                 continue
             if callable(prop_):
@@ -266,8 +274,12 @@ class ManagerAdmin(BaseManager):
         cls.__methodBounded = True
 
 
-class ManagerClient(BaseManager):
+class DispatcherClient(BaseManager):
     __methodBounded = False
+    dispatcherClientFunc = (
+        'ping', 'getTask',
+        'configError', 'taskSuccess', 'taskError', 'taskExpire',
+    )
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -278,16 +290,12 @@ class ManagerClient(BaseManager):
         if cls.__methodBounded:
             return
 
-        managerClientFunc = (
-            'ping', 'getTask',
-            'configError', 'taskSuccess', 'taskError', 'taskExpire',
-        )
-        for name_ in managerClientFunc:
+        for name_ in cls.dispatcherClientFunc:
             cls.register(name_)
 
         cls.__methodBounded = True
 
 
 __all__ = (
-    'TaskManager', 'ManagerServer', 'ManagerClient', 'ManagerAdmin',
+    'TaskDispatcher', 'DispatcherServer', 'DispatcherClient', 'DispatcherAdmin',
 )

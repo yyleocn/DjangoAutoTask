@@ -15,7 +15,7 @@ def workerFunc(workerConfig: WorkerProcessConfig, *args, **kwargs):
     workerStopEvent.clear()
 
     processID = f'{workerConfig.sn}-{pid}'
-    workerConfig.taskManager.methodBound()
+    workerConfig.taskDispatcher.methodBound()
 
     print(f'* Worker {processID} start @ {currentTimeStr()}')
 
@@ -26,7 +26,7 @@ def workerFunc(workerConfig: WorkerProcessConfig, *args, **kwargs):
     for sig in (signal.SIGINT, signal.SIGTERM, signal.SIGILL,):
         signal.signal(sig, stopSignalHandler)
 
-    managerCheckTime = time.time()
+    dispatcherCheckTime = time.time()
 
     while True:
         # -------------------- exit event check --------------------
@@ -47,12 +47,12 @@ def workerFunc(workerConfig: WorkerProcessConfig, *args, **kwargs):
         try:
             # -------------------- get task config --------------------
             taskConfig: TaskConfig | int = remoteProxyCall(
-                func=workerConfig.taskManager.getTask,
+                func=workerConfig.taskDispatcher.getTask,
                 workerName=f'{workerConfig.localName}-{processID}',
-            )  # 从 manager 获取 taskConfig
+            )  # 从 dispatcher 获取 taskConfig
 
-            # -------------------- refresh manager check time --------------------
-            managerCheckTime = currentTime
+            # -------------------- refresh dispatcher check time --------------------
+            dispatcherCheckTime = currentTime
 
             if taskConfig == 1:
                 time.sleep(0.5)  # 1 表示忙碌状态，暂停 0.5 秒
@@ -69,7 +69,7 @@ def workerFunc(workerConfig: WorkerProcessConfig, *args, **kwargs):
                 taskFunc, taskArgs, taskKwargs = taskConfig.unpack()  # 解析 taskConfig 的数据
             except:
                 print(f'  Task  {taskConfig.sn} config invalid')
-                remoteProxyCall(workerConfig.taskManager.invalidConfig, taskSn=taskConfig.sn)  # 发送 invalidConfig 错误
+                remoteProxyCall(workerConfig.taskDispatcher.invalidConfig, taskSn=taskConfig.sn)  # 发送 invalidConfig 错误
                 continue
 
             # -------------------- send time limit --------------------
@@ -82,7 +82,7 @@ def workerFunc(workerConfig: WorkerProcessConfig, *args, **kwargs):
                 # -------------------- after crash --------------------
                 print(f'  Task {taskConfig.sn} run error: {err_}')
                 remoteProxyCall(
-                    workerConfig.taskManager.taskCrash,
+                    workerConfig.taskDispatcher.taskCrash,
                     taskSn=taskConfig.sn,
                     detail=str(err_),
                 )  # 发送 taskCrash 错误
@@ -92,20 +92,20 @@ def workerFunc(workerConfig: WorkerProcessConfig, *args, **kwargs):
 
             # -------------------- send result --------------------
             remoteProxyCall(
-                workerConfig.taskManager.taskSuccess,
+                workerConfig.taskDispatcher.taskSuccess,
                 taskSn=taskConfig.sn,
                 result=result,
             )  # 发送 taskSuccess
 
-        # -------------------- catch the manager timeout exception --------------------
+        # -------------------- catch the dispatcher timeout exception --------------------
         except ProxyTimeout as err_:
-            print(f'Task manager timeout @ worker {processID}')
+            print(f'Task dispatcher timeout @ worker {processID}')
 
-            # -------------------- task manager timeout --------------------
-            if currentTime - managerCheckTime < CONFIG.managerTimeLimit:
+            # -------------------- task dispatcher timeout --------------------
+            if currentTime - dispatcherCheckTime < CONFIG.dispatcherTimeout:
                 time.sleep(5)
             else:
-                print(f'Task manager timeout, worker {processID} exit')
+                print(f'Task dispatcher timeout, worker {processID} exit')
                 exit()
 
         except Exception as err_:

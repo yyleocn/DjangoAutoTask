@@ -4,7 +4,7 @@ import time
 from django.core.management.base import BaseCommand, no_translations
 
 from ...Component import currentTimeStr, CONFIG
-from ...Manager import (ManagerServer, ManagerAdmin, ManagerClient, )
+from ...Dispatcher import (DispatcherServer, DispatcherAdmin, DispatcherClient, )
 from ...Cluster import WorkerCluster
 from ...Worker import workerFunc
 from ...Handler import AutoTaskHandler
@@ -13,60 +13,60 @@ from ...Handler import AutoTaskHandler
 class Command(BaseCommand):
     help = 'Run AutoTask command'
 
-    def managerServerInit(self):
-        managerServer = ManagerServer(
+    def dispatcherHostInit(self):
+        dispatcherHost = DispatcherServer(
             address=('', CONFIG.port),
             authkey=CONFIG.authKey,
         )
 
-        def shutdownManager(*args):
-            print(f'Task manager close @ {currentTimeStr()}')
+        def shutdownDispatcher(*args):
+            print(f'Task dispatcher close @ {currentTimeStr()}')
             time.sleep(2)
             exit()
 
         for sig in (signal.SIGINT, signal.SIGTERM, signal.SIGILL,):
-            signal.signal(sig, shutdownManager)
+            signal.signal(sig, shutdownDispatcher)
 
-        return managerServer
+        return dispatcherHost
 
-    def managerAdminInit(self):
-        managerAdmin = ManagerAdmin(
+    def dispatcherAdminInit(self):
+        dispatcherAdmin = DispatcherAdmin(
             address=('localhost', CONFIG.port),
             authkey=CONFIG.authKey,
         )
 
-        return managerAdmin
+        return dispatcherAdmin
 
     def workerClusterInit(self):
-        managerClient = ManagerClient(
+        dispatcherClient = DispatcherClient(
             address=(CONFIG.host, CONFIG.port),
             authkey=CONFIG.authKey,
         )
 
         workerCluster = WorkerCluster(
-            managerConn=managerClient,
+            dispatcherConn=dispatcherClient,
             workerFunc=workerFunc,
         )
         return workerCluster
 
     @no_translations
-    def runManager(self):
-        managerServer = self.managerServerInit()
-        managerAdmin = self.managerAdminInit()
+    def runDispatcher(self):
+        dispatcherHost = self.dispatcherHostInit()
+        dispatcherAdmin = self.dispatcherAdminInit()
 
-        managerServer.start()
+        dispatcherHost.start()
         time.sleep(1)
-        managerAdmin.connect()
+        dispatcherAdmin.connect()
 
-        print(f'Task manager start @ {currentTimeStr()}')
+        print(f'Task dispatcher start @ {currentTimeStr()}')
 
         checkTime = 0
         while True:
             if time.time() - checkTime > 10:
-                isRunning = managerAdmin.isRunning()._getvalue()
+                isRunning = dispatcherAdmin.isRunning()._getvalue()
                 if isRunning:
                     AutoTaskHandler.taskSchemeAuto()
-                managerAdmin.refreshTaskQueue()._getvalue()
+                dispatcherAdmin.refreshTaskQueue()._getvalue()
                 checkTime = time.time()
             time.sleep(0.2)
 
@@ -80,47 +80,47 @@ class Command(BaseCommand):
     def add_arguments(self, parser):
         parser.add_argument(
             'command',
-            help='Command: manager / cluster / shutdown / status',
+            help='Command: dispatcher / cluster / shutdown / status',
         )
 
-    def shutdownManager(self):
-        managerAdmin = ManagerAdmin(
+    def shutdownDispatcher(self):
+        dispatcherAdmin = DispatcherAdmin(
             address=('localhost', CONFIG.port),
             authkey=CONFIG.authKey,
         )
-        managerAdmin.connect()
-        res = managerAdmin.shutdownManager()._getvalue()
+        dispatcherAdmin.connect()
+        res = dispatcherAdmin.shutdownDispatcher()._getvalue()
         print(res)
 
     def status(self):
-        managerAdmin = ManagerAdmin(
+        dispatcherAdmin = DispatcherAdmin(
             address=('localhost', CONFIG.port),
             authkey=CONFIG.authKey,
         )
-        managerAdmin.connect()
-        managerStatus = managerAdmin.status()._getvalue()
-        if not isinstance(managerStatus, dict):
-            print(managerStatus)
+        dispatcherAdmin.connect()
+        dispatcherStatus = dispatcherAdmin.status()._getvalue()
+        if not isinstance(dispatcherStatus, dict):
+            print(dispatcherStatus)
             return
 
         print(f'''>-------------------------------------------------------''')
-        print(f'''>          {managerStatus.get('name', '******')}: {managerStatus.get('state', '******')} ''')
+        print(f'''>          {dispatcherStatus.get('name', '******')}: {dispatcherStatus.get('state', '******')} ''')
         print(f'''>---------------   Cluster    --------------------------''')
-        for cluster in managerStatus.get('cluster', []):
+        for cluster in dispatcherStatus.get('cluster', []):
             print(f'''> {cluster.get('name'):>10}:{cluster.get('pid', [])}''')
 
         print(f'''>--------------- running task --------------------------''')
-        for taskRec in managerStatus.get('runningTask', []):
+        for taskRec in dispatcherStatus.get('runningTask', []):
             print(f'''> {taskRec.get('taskSn')}:{taskRec.get('executor')}''')
 
     @no_translations
     def handle(self, *args, **options):
         match options.get('command'):
-            case 'manager':
-                self.runManager()
+            case 'dispatcher':
+                self.runDispatcher()
             case 'cluster':
                 self.runCluster()
             case 'shutdown':
-                self.shutdownManager()
+                self.shutdownDispatcher()
             case 'status':
                 self.status()

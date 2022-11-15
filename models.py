@@ -30,11 +30,14 @@ class TimeStampField(models.BigIntegerField):
     pass
 
 
-# --------------------------------------------------------------------------------
-#
-#                     Public
-#
-# --------------------------------------------------------------------------------
+#     ######            #          ##        #
+#     #     #           #           #
+#     #     #  #     #  ######      #      ###      #####
+#     ######   #     #  #     #     #        #     #
+#     #        #     #  #     #     #        #     #
+#     #        #    ##  #     #     #        #     #
+#     #         #### #  ######     ###     #####    #####
+
 class TaskFieldPublic(models.Model):
     # -------------------- requirement --------------------
     createTime = TimeStampField(null=False, default=currentStamp)
@@ -88,11 +91,15 @@ class TaskFieldPublic(models.Model):
         abstract = True
 
 
-# --------------------------------------------------------------------------------
-#
-#                     TaskPackage
-#
-# --------------------------------------------------------------------------------
+#      #######                    #        ######                     #
+#         #                       #        #     #                    #
+#         #      ######   #####   #   ##   #     #   ######   #####   #   ##    ######   ######   #####
+#         #     #     #  #        #  #     ######   #     #  #        #  #     #     #  #     #  #     #
+#         #     #     #   ####    ###      #        #     #  #        ###      #     #  #     #  #######
+#         #     #    ##       #   #  #     #        #    ##  #        #  #     #    ##   ######  #
+#         #      #### #  #####    #   ##   #         #### #   #####   #   ##    #### #        #   #####
+#                                                                                        #####
+
 class TaskPackage(TaskFieldPublic):
     taskPackageSn = models.BigAutoField(primary_key=True, )
 
@@ -117,11 +124,14 @@ class TaskPackage(TaskFieldPublic):
     retryLimit = None
 
 
-# --------------------------------------------------------------------------------
-#
-#                     TaskScheme
-#
-# --------------------------------------------------------------------------------
+#     #######                    #         #####            #
+#        #                       #        #     #           #
+#        #      ######   #####   #   ##   #         #####   ######    #####   ### ##    #####
+#        #     #     #  #        #  #      #####   #        #     #  #     #  #  #  #  #     #
+#        #     #     #   ####    ###            #  #        #     #  #######  #  #  #  #######
+#        #     #    ##       #   #  #     #     #  #        #     #  #        #  #  #  #
+#        #      #### #  #####    #   ##    #####    #####   #     #   #####   #     #   #####
+
 class TaskScheme(TaskFieldPublic):
     taskSchemeSn = models.AutoField(primary_key=True)  # scheme sn
 
@@ -193,11 +203,14 @@ class TaskScheme(TaskFieldPublic):
         return nextTask
 
 
-# --------------------------------------------------------------------------------
-#
-#                     TaskRec
-#
-# --------------------------------------------------------------------------------
+#      #######                    #        ######
+#         #                       #        #     #
+#         #      ######   #####   #   ##   #     #   #####    #####
+#         #     #     #  #        #  #     ######   #     #  #
+#         #     #     #   ####    ###      #   #    #######  #
+#         #     #    ##       #   #  #     #    #   #        #
+#         #      #### #  #####    #   ##   #     #   #####    #####
+
 class TaskRec(TaskFieldPublic):
     taskSn = models.BigAutoField(primary_key=True)  # task sn
 
@@ -258,7 +271,7 @@ class TaskRec(TaskFieldPublic):
     execute = models.SmallIntegerField(default=0)  # 执行次数
 
     @classmethod
-    def taskRecManage(cls, taskSn: int) -> TaskRec | None:
+    def getTaskRec(cls, taskSn: int) -> TaskRec | None:
         if not isinstance(taskSn, int):
             return None
         if not cls.objects.filter(taskSn=taskSn).exists():

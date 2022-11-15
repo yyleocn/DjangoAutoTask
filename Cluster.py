@@ -13,11 +13,11 @@ class WorkerProcess:
     def __init__(
             self, *_,
             sn: int, localName: str, workerFunc,
-            manager: BaseManager, shutdownEvent,
+            dispatcher: BaseManager, shutdownEvent,
     ):
         self.__sn = sn
         self.__workerProcess: Process | None = None
-        self.__taskManager = manager
+        self.__taskDispatcher = dispatcher
         self.__shutdownEvent = shutdownEvent
         self.__workerFunc = workerFunc
 
@@ -50,7 +50,7 @@ class WorkerProcess:
                 WorkerProcessConfig(
                     sn=self.__sn,
                     shutdownEvent=self.__shutdownEvent,
-                    taskManager=self.__taskManager,
+                    taskDispatcher=self.__taskDispatcher,
                     pipe=self.__workerPipe,
                     localName=self.__localName,
                 ),
@@ -102,11 +102,11 @@ class WorkerProcess:
 # -------------------- worker cluster --------------------
 class WorkerCluster:
     def __init__(
-            self, *_, managerConn: BaseManager = None, workerFunc: Callable,
+            self, *_, dispatcherConn: BaseManager = None, workerFunc: Callable,
             localName: str = CONFIG.name, poolSize: int = CONFIG.poolSize,
     ):
-        if managerConn is None:
-            raise Exception('Invalid task manager')
+        if dispatcherConn is None:
+            raise Exception('Invalid task dispatcher')
 
         self.__processPool: list[WorkerProcess] = []
         self.__poolSize: int = poolSize
@@ -115,11 +115,11 @@ class WorkerCluster:
         self.__shutdownEvent = Event()
         self.__shutdownEvent.clear()
 
-        self.__managerStatus = 0
+        self.__dispatcherStatus = 0
         self.__shutdown = False
-        # set the exitEvent() when managerStatus < 0 or exit = True
+        # set the exitEvent() when dispatcherStatus < 0 or exit = True
 
-        self.__managerConn: BaseManager = managerConn
+        self.__dispatcherConn: BaseManager = dispatcherConn
         self.__workerFunc = workerFunc
 
         self.__processCounter = 0
@@ -136,8 +136,8 @@ class WorkerCluster:
             if self.__shutdownEvent.is_set():
                 break
             try:
-                print(f'Cluster {self.pid} connecting task manager.')
-                self.__managerConn.connect()
+                print(f'Cluster {self.pid} connecting task dispatcher.')
+                self.__dispatcherConn.connect()
                 break
             except Exception as err_:
                 print(f'Connect fail, waiting for retry.')
@@ -157,7 +157,7 @@ class WorkerCluster:
                 sn=self.__processCounter,
                 shutdownEvent=self.__shutdownEvent,
                 workerFunc=self.__workerFunc,
-                manager=self.__managerConn,
+                dispatcher=self.__dispatcherConn,
                 localName=self.__localName,
             )
             self.__processPool.append(process)
@@ -174,12 +174,12 @@ class WorkerCluster:
 
     @property
     def running(self):
-        if self.__shutdown or self.__managerStatus < 0:
+        if self.__shutdown or self.__dispatcherStatus < 0:
             return False
         return True
 
     def run(self):
-        managerCheckTime = 0
+        dispatcherCheckTime = 0
         while True:
             if not self.running:
                 self.__shutdownEvent.set()
@@ -189,19 +189,19 @@ class WorkerCluster:
             if self.__shutdown:
                 break
 
-            if time.time() - managerCheckTime > 10:
+            if time.time() - dispatcherCheckTime > 10:
                 try:
-                    pingRes = self.__managerConn.ping(
+                    pingRes = self.__dispatcherConn.ping(
                         {
                             'name': self.__localName,
                             'pid': self.workerPid,
                             'status': 'running' if self.running else 'shutdown',
                         }
                     )._getvalue()
-                    self.__managerStatus = pingRes
-                    managerCheckTime = time.time()
+                    self.__dispatcherStatus = pingRes
+                    dispatcherCheckTime = time.time()
                 except Exception as err_:
-                    print(f'Cluster {self.pid} connect task manager fail: {err_}')
+                    print(f'Cluster {self.pid} connect task dispatcher fail: {err_}')
                     time.sleep(5)
                     continue
 
