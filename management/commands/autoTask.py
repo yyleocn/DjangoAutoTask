@@ -3,7 +3,7 @@ import time
 
 from django.core.management.base import BaseCommand, no_translations
 
-from ...Component import currentTimeStr, CONFIG
+from ...Public import currentTimeStr, CONFIG
 from ...Dispatcher import (DispatcherServer, DispatcherAdmin, DispatcherClient, )
 from ...Cluster import WorkerCluster
 from ...Worker import workerFunc

@@ -10,7 +10,10 @@ except AppRegistryNotReady:
 
     django.setup()
 
-from .Component import CONFIG, TaskConfig, TaskInfo
+from . import Public
+
+if Public.TYPE_CHECKING:
+    from .Public import TaskInfo
 
 from .models import TaskScheme, TaskRec, TaskRecQueueFields
 
@@ -31,11 +34,11 @@ class AutoTaskHandler:
 
         queryRes = TaskRec.getTaskQueue(taskType=taskType, size=limit).values(*TaskRecQueueFields)
         return [
-            TaskInfo(
+            Public.TaskInfo(
                 taskSn=taskRec['taskSn'], combine=taskRec['combine'], priority=taskRec['priority'],
-                config=TaskConfig(
+                config=Public.TaskConfig(
                     sn=taskRec['taskSn'], combine=taskRec['combine'],
-                    timeLimit=taskRec['timeLimit'] or CONFIG.taskTimeLimit,
+                    timeLimit=taskRec['timeLimit'] or Public.CONFIG.taskTimeLimit,
                     func=taskRec['func'], callback=taskRec['callback'],
                     args=taskRec['args'], kwargs=taskRec['kwargs'],
                 ),

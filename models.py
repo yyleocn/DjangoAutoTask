@@ -6,11 +6,12 @@ from croniter import croniter
 from django.db import models
 from django.db.models import QuerySet, Q
 
-from .Component import CONFIG, timeStampToString
+from . import Public
+# from .Component import CONFIG, timeStampToString
 
 
 def taskTimeLimit() -> int:
-    return CONFIG.taskTimeLimit
+    return Public.CONFIG.taskTimeLimit
 
 
 def currentStamp() -> int:
@@ -183,7 +184,7 @@ class TaskScheme(TaskFieldPublic):
             createUser=self.createUser,
 
             type=TaskRec.TypeChoice.scheme,
-            name=f'''{self.name}-{timeStampToString(planTime, formatStr='%Y%m%d-%H%M%S')}''',
+            name=f'''{self.name}-{Public.timeStampToString(planTime, formatStr='%Y%m%d-%H%M%S')}''',
             tag=self.tag,
 
             scheme=scheme,
@@ -289,7 +290,7 @@ class TaskRec(TaskFieldPublic):
     ) -> QuerySet[TaskRec]:
         currentTime = currentStamp()
 
-        querySize = CONFIG.queueSize
+        querySize = Public.CONFIG.queueSize
         if isinstance(size, int):
             querySize = size
 

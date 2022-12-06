@@ -18,7 +18,11 @@ except AppRegistryNotReady:
 
     django.setup()
 
-from .Component import (getNowStamp, TaskInfo, CONFIG, importComponent, currentTimeStr, TaskConfig, )
+from . import Public
+
+if Public.TYPE_CHECKING:
+    from .Public import (TaskInfo, TaskConfig, )
+
 from .Handler import AutoTaskHandler
 
 
@@ -45,9 +49,9 @@ class TaskDispatcher:
 
         print(f'Task dispatcher {self.pid} init')
 
-        if CONFIG.handlerClass:
+        if Public.CONFIG.handlerClass:
             try:
-                handlerClass = importComponent(CONFIG.handlerClass)
+                handlerClass = Public.importComponent(Public.CONFIG.handlerClass)
             except:
                 raise Exception('Handler class not exist')
             if not issubclass(handlerClass, AutoTaskHandler):
@@ -58,7 +62,7 @@ class TaskDispatcher:
             self.__handler = AutoTaskHandler()
 
         def shutdownHandler(*_, ):
-            print(f'Dispatcher {self.pid} receive stop signal @ {currentTimeStr()}')
+            print(f'Dispatcher {self.pid} receive stop signal @ {Public.currentTimeStr()}')
             self.exit()
 
         for sig in (signal.SIGINT, signal.SIGTERM, signal.SIGILL,):
@@ -86,7 +90,7 @@ class TaskDispatcher:
         # --------------- lock queue --------------------
         self.__taskQueueLock = True
 
-        currentTime = getNowStamp()
+        currentTime = Public.getNowStamp()
 
         # --------------- remove overtime task --------------------
         for taskInfo in self.__taskQueue:
@@ -113,14 +117,14 @@ class TaskDispatcher:
 
         # --------------- get append task --------------------
         appendTask: list[TaskInfo] = [
-            taskState for taskState in self.__handler.getTaskQueue(limit=CONFIG.queueSize)
+            taskState for taskState in self.__handler.getTaskQueue(limit=Public.CONFIG.queueSize)
             if taskState.taskSn not in executingTaskSn
         ]
 
         # --------------- sort by priority --------------------
         newQueue: list[TaskInfo] = [
                                        taskRec for taskRec in [*runningTask, *appendTask, ] if not taskRec.done
-                                   ][:CONFIG.queueSize]
+                                   ][:Public.CONFIG.queueSize]
 
         # --------------- new queue sort --------------------
         newQueue.sort(key=attrgetter('priority', 'taskSn'))
@@ -219,7 +223,7 @@ class TaskDispatcher:
 
     def status(self):
         return {
-            'name': CONFIG.name,
+            'name': Public.CONFIG.name,
             'state': 'running' if self.isRunning() else 'shutdown',
             'cluster': self.__clusterDict.values(),
             'runningTask': [

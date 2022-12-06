@@ -4,7 +4,10 @@ import traceback
 
 from multiprocessing import current_process, Event
 
-from .Component import WorkerProcessConfig, currentTimeStr, CONFIG, remoteProxyCall, ProxyTimeout, TaskConfig
+from . import Public
+
+if Public.TYPE_CHECKING:
+    from .Public import WorkerProcessConfig, TaskConfig
 
 
 def workerFunc(workerConfig: WorkerProcessConfig, *args, **kwargs):
@@ -16,10 +19,10 @@ def workerFunc(workerConfig: WorkerProcessConfig, *args, **kwargs):
     processID = f'{workerConfig.sn}-{pid}'
     workerConfig.dispatcherClient.methodBound()
 
-    print(f'* Worker {processID} start @ {currentTimeStr()}')
+    print(f'* Worker {processID} start @ {Public.currentTimeStr()}')
 
     def stopSignalHandler(*_, ):
-        print(f'Worker {processID} receive stop signal @ {currentTimeStr()}')
+        print(f'Worker {processID} receive stop signal @ {Public.currentTimeStr()}')
         workerStopEvent.set()
 
     for sig in (signal.SIGINT, signal.SIGTERM, signal.SIGILL,):
@@ -30,13 +33,13 @@ def workerFunc(workerConfig: WorkerProcessConfig, *args, **kwargs):
     while True:
         # -------------------- exit event check --------------------
         if workerConfig.shutdownEvent.is_set() or workerStopEvent.is_set():
-            print(f'Worker {processID} exit @ {currentTimeStr()}')
+            print(f'Worker {processID} exit @ {Public.currentTimeStr()}')
             exit()
 
         currentTime = time.time()
 
         # -------------------- work process life time --------------------
-        if currentTime - initTime > CONFIG.workerLifeTime:
+        if currentTime - initTime > Public.CONFIG.workerLifeTime:
             print(f'Worker {processID} life end, exit for next')
             exit()
 
@@ -45,7 +48,7 @@ def workerFunc(workerConfig: WorkerProcessConfig, *args, **kwargs):
 
         try:
             # -------------------- get task config --------------------
-            taskConfig: TaskConfig | int = remoteProxyCall(
+            taskConfig: TaskConfig | int = Public.remoteProxyCall(
                 func=workerConfig.dispatcherClient.getTask,
                 workerName=f'{workerConfig.localName}-{processID}',
             )  # 从 dispatcher 获取 taskConfig
@@ -68,7 +71,7 @@ def workerFunc(workerConfig: WorkerProcessConfig, *args, **kwargs):
                 taskFunc, taskArgs, taskKwargs = taskConfig.unpack()  # 解析 taskConfig 的数据
             except:
                 print(f'  Task  {taskConfig.sn} config invalid')
-                remoteProxyCall(
+                Public.remoteProxyCall(
                     workerConfig.dispatcherClient.invalidConfig,
                     taskSn=taskConfig.sn, detail=traceback.format_exc(),
                 )  # 发送 invalidConfig 错误
@@ -83,7 +86,7 @@ def workerFunc(workerConfig: WorkerProcessConfig, *args, **kwargs):
             except Exception as err_:
                 # -------------------- after crash --------------------
                 print(f'  Task {taskConfig.sn} run error: {err_}')
-                remoteProxyCall(
+                Public.remoteProxyCall(
                     workerConfig.dispatcherClient.taskCrash,
                     taskSn=taskConfig.sn,
                     detail=traceback.format_exc(),
@@ -93,22 +96,22 @@ def workerFunc(workerConfig: WorkerProcessConfig, *args, **kwargs):
             print(f'  Task {taskConfig.sn} success')
 
             # -------------------- send result --------------------
-            remoteProxyCall(
+            Public.remoteProxyCall(
                 workerConfig.dispatcherClient.taskSuccess,
                 taskSn=taskConfig.sn,
                 result=result,
             )  # 发送 taskSuccess
 
         # -------------------- catch the dispatcher timeout exception --------------------
-        except ProxyTimeout as err_:
+        except Public.ProxyTimeout as err_:
             print(f'Task dispatcher timeout @ worker {processID}')
 
             # -------------------- task dispatcher timeout --------------------
-            if currentTime - dispatcherCheckTime < CONFIG.dispatcherTimeout:
+            if currentTime - dispatcherCheckTime < Public.CONFIG.dispatcherTimeout:
                 time.sleep(5)
             else:
                 print(f'Task dispatcher timeout, worker {processID} exit')
                 exit()
 
         except Exception as err_:
-            print(f'* Worker {processID} crash @ {currentTimeStr()} : {err_}')
+            print(f'* Worker {processID} crash @ {Public.currentTimeStr()} : {err_}')

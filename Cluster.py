@@ -4,7 +4,7 @@ from typing import TYPE_CHECKING
 from multiprocessing import Event, current_process, Pipe, parent_process, Process
 from typing import Callable
 
-from .Component import CONFIG, currentTimeStr, WorkerProcessConfig, getNowStamp
+from . import Public
 
 if TYPE_CHECKING:
     from .Dispatcher import DispatcherClient
@@ -32,9 +32,9 @@ class WorkerProcess:
 
     def refreshWorkerTimeLimit(self, timeLimit=None):
         if timeLimit is None:
-            self.__workerTimeLimit = getNowStamp() + CONFIG.taskTimeLimit + 2
+            self.__workerTimeLimit = Public.getNowStamp() + Public.CONFIG.taskTimeLimit + 2
             return
-        self.__workerTimeLimit = getNowStamp() + timeLimit + 2
+        self.__workerTimeLimit = Public.getNowStamp() + timeLimit + 2
 
     def createProcess(self):
         if parent_process():
@@ -49,7 +49,7 @@ class WorkerProcess:
         self.__workerProcess = Process(
             target=self.__workerFunc,
             args=(
-                WorkerProcessConfig(
+                Public.WorkerProcessConfig(
                     sn=self.__sn,
                     shutdownEvent=self.__shutdownEvent,
                     dispatcherClient=self.__taskDispatcher,
@@ -105,7 +105,7 @@ class WorkerProcess:
 class WorkerCluster:
     def __init__(
             self, *_, dispatcherConn: DispatcherClient = None, workerFunc: Callable,
-            localName: str = CONFIG.name, poolSize: int = CONFIG.poolSize,
+            localName: str = Public.CONFIG.name, poolSize: int = Public.CONFIG.poolSize,
     ):
         if dispatcherConn is None:
             raise Exception('Invalid task dispatcher')
@@ -127,7 +127,7 @@ class WorkerCluster:
         self.__processCounter = 0
 
         def shutdownHandler(*_):
-            print(f'Cluster {self.pid} receive shutdown signal @ {currentTimeStr()}')
+            print(f'Cluster {self.pid} receive shutdown signal @ {Public.currentTimeStr()}')
             self.shutdown()
 
         for sig in (signal.SIGINT, signal.SIGTERM, signal.SIGILL,):
@@ -230,7 +230,7 @@ class WorkerCluster:
                     allStop = False
 
             if allStop:
-                print(f'Cluster {self.pid} ready to exit @ {currentTimeStr()}')
+                print(f'Cluster {self.pid} ready to exit @ {Public.currentTimeStr()}')
                 self.__shutdown = True
 
                 return None
