@@ -1,21 +1,34 @@
-from . import Public, models, Handler
+from . import Public
+
+from .models import TaskRec, TaskScheme, TaskPackage
 
 if Public.TYPE_CHECKING:
-    from .Public import Callable
+    from .Public import (TaskData, TaskConfig, Iterable, )
 
 
-def createTask(
-        name: str,
-        func: str,
-        args: tuple,
-        kwargs: dict,
-):
-    x = models.TaskRec(
-        name=name,
-        func=func,
-        args=Handler.AutoTaskHandler.serialize(args),
+def createTask(taskData: TaskData):
+    taskRec = TaskRec(
+        name=taskData.name,
+        config=taskData.taskConfig.to_json(),
     )
+    taskRec.save()
 
 
-def createTaskPack():
-    pass
+def createTaskChain(taskDataArr: Iterable[TaskData, ...]):
+    prevTask = None
+    taskData: TaskData
+    for index, taskData in enumerate(taskDataArr):
+        taskRec = TaskRec(
+            name=taskData.name,
+            config=taskData.taskConfig.to_json(),
+            prevTask=prevTask,
+            note=taskData.note,
+        )
+        taskRec.save()
+        prevTask = taskRec
+
+
+def createTaskPack(packageName: str, taskDataArr: Iterable[TaskData, ...]):
+    taskPackageRec = TaskPackage(
+        name=packageName,
+    )

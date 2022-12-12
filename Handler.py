@@ -13,7 +13,7 @@ except AppRegistryNotReady:
 from . import Public
 
 if Public.TYPE_CHECKING:
-    from .Public import TaskInfo
+    from .Public import TaskState
 
 from .models import TaskScheme, TaskRec, TaskRecQueueFields
 
@@ -30,17 +30,16 @@ class AutoTaskHandler:
 
     # -------------------- TaskRec --------------------
     @classmethod
-    def getTaskQueue(cls, *_, taskType: int | None = None, limit: int | None = None) -> list[TaskInfo]:
+    def getTaskQueue(cls, *_, taskType: int | None = None, limit: int | None = None) -> list[TaskState]:
 
         queryRes = TaskRec.getTaskQueue(taskType=taskType, size=limit).values(*TaskRecQueueFields)
         return [
-            Public.TaskInfo(
+            Public.TaskState(
                 taskSn=taskRec['taskSn'], combine=taskRec['combine'], priority=taskRec['priority'],
-                config=Public.TaskConfig(
-                    sn=taskRec['taskSn'], combine=taskRec['combine'],
+                config=Public.TaskInfo(
+                    sn=taskRec['taskSn'],
                     timeLimit=taskRec['timeLimit'] or Public.CONFIG.taskTimeLimit,
-                    func=taskRec['func'], callback=taskRec['callback'],
-                    args=taskRec['args'], kwargs=taskRec['kwargs'],
+                    taskConfig=Public.TaskConfig.from_json(taskRec['config']),
                 ),
             ) for taskRec in queryRes
         ]
@@ -105,6 +104,6 @@ class AutoTaskHandler:
 
     @classmethod
     def taskSchemeAuto(cls):
-        expireScheme = TaskScheme.queryExpireScheme()
+        expireScheme = TaskScheme.queryDueScheme()
         for scheme in expireScheme:
             scheme.nextTaskCreate()

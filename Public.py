@@ -4,12 +4,13 @@ import time
 
 from pydoc import safeimport
 from dataclasses import dataclass
-from typing import Callable, TYPE_CHECKING
+from typing import (TYPE_CHECKING, Callable, Iterator, TypeAlias, Iterable, )
 
 from multiprocessing import Event
 from multiprocessing.connection import Connection
 
 from django.conf import settings
+from dataclasses_json import dataclass_json
 
 if TYPE_CHECKING:
     from .Dispatcher import DispatcherClient
@@ -88,10 +89,12 @@ class AutoTaskConfig:
     # cluster
     name: str = 'AutoTask'
     poolSize: int = 2
-    workerLifeTime: int = 600
+    workerLifetime: int = 600
 
     # task
     taskTimeLimit: int = 20
+    taskRetryDelay: int = 30
+    taskRetryCount: int = 5
 
     __handler = None
 
@@ -144,22 +147,45 @@ class WorkerProcessConfig:
     localName: str
 
 
+@dataclass_json
 @dataclass(frozen=True)
 class TaskConfig:
-    sn: int
     func: str
-    timeLimit: int
-
     args: str | None = None
     kwargs: str | None = None
+
+
+TaskConfigArrayType: TypeAlias = list[TaskConfig, ...] | tuple[TaskConfig, ...]
+
+
+@dataclass(frozen=True)
+class TaskData:
+    name: str
+
+    taskConfig: TaskConfig
+
     combine: int | None = None
+    timeLimit: int | None = None
 
-    callback: str | None = None
+    note: str | None = None
+    tags: tuple[str, ...] = ()
 
-    # -------------------- TaskConfig --------------------
+
+TaskDataArrayType: TypeAlias = list[TaskData, ...] | tuple[TaskData, ...]
+
+
+@dataclass(frozen=True)
+class TaskInfo:
+    sn: int
+    taskConfig: TaskConfig
+
+    combine: int | None = None
+    timeLimit: int | None = None
+
+    # -------------------- unpack --------------------
     def unpack(self) -> tuple[Callable, list, dict]:
         try:
-            func: Callable = importFunction(self.func)
+            func: Callable = importFunction(self.taskConfig.func)
         except:
             raise Exception('Invalid task function')
         if not callable(func):
@@ -167,10 +193,10 @@ class TaskConfig:
 
         args: list
         try:
-            if self.args:
-                args = CONFIG.handler.deserialize(self.args)
+            if self.taskConfig.args:
+                args = CONFIG.handler.deserialize(self.taskConfig.args)
             else:
-                args: list = list()
+                args = []
         except:
             raise Exception('Invalid task args')
         if not isinstance(args, list):
@@ -178,10 +204,10 @@ class TaskConfig:
 
         kwargs: dict
         try:
-            if self.kwargs:
-                kwargs = CONFIG.handler.deserialize(self.kwargs)
+            if self.taskConfig.kwargs:
+                kwargs = CONFIG.handler.deserialize(self.taskConfig.kwargs)
             else:
-                kwargs = dict()
+                kwargs = {}
         except:
             raise Exception('Invalid task kwargs')
         if not isinstance(kwargs, dict):
@@ -190,16 +216,22 @@ class TaskConfig:
         return func, args, kwargs
 
 
+TaskInfoArrayType: TypeAlias = list[TaskInfo, ...] | tuple[TaskInfo, ...]
+
+
 @dataclass
-class TaskInfo:
+class TaskState:
     taskSn: int
     priority: int
-    config: TaskConfig
+    config: TaskInfo
 
     combine: int = None
     timeout: int = None
     executor: str = None
     done: bool = False
+
+
+TaskStateArrayType: TypeAlias = list[TaskState, ...] | tuple[TaskState, ...]
 
 
 class ProxyTimeout(Exception):
@@ -220,9 +252,9 @@ def remoteProxyCall(func: Callable, *args, retry=5, **kwargs):
 
 __all__ = (
     'currentTimeStr', 'getNowStamp', 'timeStampToString',
-    'CONFIG',
-    'TaskConfig', 'ReadonlyDict',
+    'CONFIG', 'Iterator',
+    'TaskInfo', 'ReadonlyDict',
     'importComponent', 'importFunction',
-    'WorkerProcessConfig', 'TaskConfig', 'TaskInfo',
+    'WorkerProcessConfig', 'TaskInfo', 'TaskState',
     'remoteProxyCall', 'ProxyTimeout',
 )

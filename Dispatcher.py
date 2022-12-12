@@ -21,7 +21,7 @@ except AppRegistryNotReady:
 from . import Public
 
 if Public.TYPE_CHECKING:
-    from .Public import (TaskInfo, TaskConfig, )
+    from .Public import (TaskState, TaskInfo, )
 
 from .Handler import AutoTaskHandler
 
@@ -40,8 +40,8 @@ class TaskDispatcher:
 
     def __init__(self, *_, **kwargs):
         self.__taskQueueLock: bool = False
-        self.__taskQueue: list[TaskInfo] = []
-        self.__taskDict: dict[int, TaskInfo] = {}
+        self.__taskQueue: list[TaskState] = []
+        self.__taskDict: dict[int, TaskState] = {}
         self.__exit: bool = False
         self.__shutdown: bool = False
         self.__pid = current_process().pid
@@ -106,7 +106,7 @@ class TaskDispatcher:
             return
 
         # --------------- get executing task --------------------
-        runningTask: list[TaskInfo] = [
+        runningTask: list[TaskState] = [
             taskState for taskState in self.__taskQueue
             if taskState.executor is not None
         ]
@@ -116,14 +116,14 @@ class TaskDispatcher:
         }
 
         # --------------- get append task --------------------
-        appendTask: list[TaskInfo] = [
+        appendTask: list[TaskState] = [
             taskState for taskState in self.__handler.getTaskQueue(limit=Public.CONFIG.queueSize)
             if taskState.taskSn not in executingTaskSn
         ]
 
         # --------------- sort by priority --------------------
-        newQueue: list[TaskInfo] = [
-                                       taskRec for taskRec in [*runningTask, *appendTask, ] if not taskRec.done
+        newQueue: list[TaskState] = [
+                                       taskRec for taskRec in (*runningTask, *appendTask, ) if not taskRec.done
                                    ][:Public.CONFIG.queueSize]
 
         # --------------- new queue sort --------------------
@@ -138,14 +138,14 @@ class TaskDispatcher:
         # --------------- unlock queue --------------------
         self.__taskQueueLock = False
 
-    def getTask(self, *args, workerName: str = None, combine: int = None, **kwargs) -> TaskConfig | int:
+    def getTask(self, *args, workerName: str = None, combine: int = None, **kwargs) -> TaskInfo | int:
         if not self.isRunning():
             return -1  # 已关闭返回 -1
 
         if self.__taskQueueLock:
             return 1  # 队列锁定返回 1
 
-        selectTask: TaskInfo | None = None
+        selectTask: TaskState | None = None
 
         # --------------- search by combine --------------------
         if combine:

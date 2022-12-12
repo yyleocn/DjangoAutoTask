@@ -7,7 +7,7 @@ from multiprocessing import current_process, Event
 from . import Public
 
 if Public.TYPE_CHECKING:
-    from .Public import WorkerProcessConfig, TaskConfig
+    from .Public import WorkerProcessConfig, TaskInfo
 
 
 def workerFunc(workerConfig: WorkerProcessConfig, *args, **kwargs):
@@ -39,7 +39,7 @@ def workerFunc(workerConfig: WorkerProcessConfig, *args, **kwargs):
         currentTime = time.time()
 
         # -------------------- work process life time --------------------
-        if currentTime - initTime > Public.CONFIG.workerLifeTime:
+        if currentTime - initTime > Public.CONFIG.workerLifetime:
             print(f'Worker {processID} life end, exit for next')
             exit()
 
@@ -48,7 +48,7 @@ def workerFunc(workerConfig: WorkerProcessConfig, *args, **kwargs):
 
         try:
             # -------------------- get task config --------------------
-            taskConfig: TaskConfig | int = Public.remoteProxyCall(
+            taskConfig: TaskInfo | int = Public.remoteProxyCall(
                 func=workerConfig.dispatcherClient.getTask,
                 workerName=f'{workerConfig.localName}-{processID}',
             )  # 从 dispatcher 获取 taskConfig
