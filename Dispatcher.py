@@ -108,7 +108,7 @@ class TaskDispatcher:
         # --------------- get executing task --------------------
         runningTask: list[TaskState] = [
             taskState for taskState in self.__taskQueue
-            if taskState.executor is not None
+            if taskState.workerName is not None
         ]
 
         executingTaskSn: set[int] = {
@@ -150,14 +150,14 @@ class TaskDispatcher:
         # --------------- search by combine --------------------
         if combine:
             for taskState in self.__taskQueue:
-                if taskState.combine == combine and not taskState.executor:
+                if taskState.combine == combine and not taskState.workerName:
                     selectTask = taskState
                     break
 
         # --------------- search all queue --------------------
         if selectTask is None:
             for taskState in self.__taskQueue:
-                if not taskState.done and not taskState.executor:
+                if not taskState.done and not taskState.workerName:
                     selectTask = taskState
                     break
 
@@ -166,12 +166,12 @@ class TaskDispatcher:
             return 0  # 没有任务返回 0
 
         # --------------- lock the task --------------------
-        selectTask.executor = workerName
+        selectTask.workerName = workerName
 
         # --------------- set task running to db --------------------
         selectTask.timeout = self.__handler.setTaskRunning(
             taskSn=selectTask.taskSn,
-            executorName=selectTask.executor,
+            workerName=selectTask.workerName,
         )
 
         print(f'Worker {workerName} get task {selectTask.taskSn}')
@@ -182,8 +182,8 @@ class TaskDispatcher:
         taskState = self.__taskDict.get(taskSn)
         if taskState is None:
             return False
-        self.__taskDict.pop(taskSn)
         self.__taskQueue.remove(taskState)
+        self.__taskDict.pop(taskSn)
         return True
 
     def taskSuccess(self, *_, taskSn: int = None, result: any = None, ):
@@ -229,8 +229,8 @@ class TaskDispatcher:
             'runningTask': [
                 {
                     'taskSn': taskState.taskSn,
-                    'executor': taskState.executor,
-                } for taskState in self.__taskQueue if taskState.executor
+                    'executor': taskState.workerName,
+                } for taskState in self.__taskQueue if taskState.workerName
             ],
         }
 

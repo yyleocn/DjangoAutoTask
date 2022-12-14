@@ -3,17 +3,19 @@ from __future__ import annotations
 import time
 
 from croniter import croniter
+
 from django.db import models
 from django.db.models import QuerySet, Q
 
+from django.db.models.signals import pre_delete
 from . import Public
 
 
-def taskTimeLimit() -> int:
+def getTaskTimeLimit() -> int:
     return Public.CONFIG.taskTimeLimit
 
 
-def currentStamp() -> int:
+def getNowTimeStamp() -> int:
     return int(time.time())
 
 
@@ -27,25 +29,17 @@ def currentStamp() -> int:
 
 class TaskFieldPublic(models.Model):
     # -------------------- requirement --------------------
-    createTime = models.BigIntegerField(default=currentStamp)
+    createTime = models.BigIntegerField(default=getNowTimeStamp)
     createUser = models.CharField(max_length=20, null=False, blank=False, )
 
     name = models.CharField(max_length=50, null=False, blank=False, )  # 作业名称
-    # note = models.CharField(max_length=100, null=True, blank=False, )  # 备注
     tag = models.JSONField(max_length=50, null=True, )  # 标签
 
     planTime = models.BigIntegerField(default=0)  # 计划时间，默认为 0 表示立即执行
 
-    timeLimit = models.SmallIntegerField(default=taskTimeLimit)  # 运行时限
+    executeTimeLimit = models.SmallIntegerField(default=getTaskTimeLimit)  # 运行时限
     retryDelay = models.SmallIntegerField(default=30, )  # 重试延迟
     retryLimit = models.SmallIntegerField(default=0, )  # 重试次数限制
-
-    # -------------------- type --------------------
-    class TypeChoice(models.IntegerChoices):
-        normal = 0
-        scheme = 10
-
-    type = models.SmallIntegerField(choices=TypeChoice.choices, default=TypeChoice.normal, )  # 类型
 
     # -------------------- priority --------------------
 
@@ -61,15 +55,7 @@ class TaskFieldPublic(models.Model):
     cancel = models.BooleanField(default=False)  # 取消
 
     # -------------------- task config --------------------
-    config = models.TextField(null=False, blank=False)  # 任务配置，包含 func / args / kwargs 三部分
-    # func = models.CharField(null=False, blank=False, max_length=50, )  # func location string
-    # args = models.TextField(null=True, blank=False, )  # args
-    # kwargs = models.TextField(null=True, blank=False, )  # kwargs
-
-    result = models.TextField(null=True, blank=False, )  # return value
-
-    # trigger = models.CharField(null=True, blank=False, max_length=50, )  # success / fail 触发器，func location string
-
+    config = models.TextField(null=False, blank=False)  # TaskConfig 的 json 数据，包含 func / args / kwargs 三部分
     combine = models.BigIntegerField(null=True)  # combine key
 
     class Meta:
@@ -96,7 +82,7 @@ class TaskPackage(TaskFieldPublic):
     finished = models.BooleanField(default=False, )
 
     def refreshStatus(self):
-        queryRes = TaskRec.objects.filter(taskPackage_id=self.taskPackageSn).values('state')
+        queryRes = TaskRec.objects.filter(taskPackage_id=self.taskPackageSn).values('taskState')
 
     func = None
     args = None
@@ -104,7 +90,7 @@ class TaskPackage(TaskFieldPublic):
     combine = None
     result = None
 
-    timeLimit = None
+    executeTimeLimit = None
     retryDelay = None
     retryLimit = None
 
@@ -121,12 +107,11 @@ class TaskScheme(TaskFieldPublic):
     taskSchemeSn = models.AutoField(primary_key=True)  # scheme sn
 
     # -------------------- next --------------------
-    state = models.SmallIntegerField(default=1)  # 计划状态
     cronStr = models.CharField(max_length=20, null=False, blank=False)  # crontab 配置
-    interval = models.PositiveIntegerField(null=True)  # 执行间隔
+    interval = models.PositiveIntegerField(default=86400)  # 执行间隔，默认一天
 
     currentTask = models.ForeignKey(
-        to="TaskRec", null=True, on_delete=models.SET_NULL, related_name='currentTaskScheme',
+        to='TaskRec', null=True, on_delete=models.SET_NULL, related_name='currentTaskScheme',
     )  # 当前任务
 
     retainTime = models.PositiveIntegerField(null=False, default=86400 * 7)  # 任务保留时间
@@ -134,11 +119,11 @@ class TaskScheme(TaskFieldPublic):
     priority = None
     result = None
 
-    message = models.CharField(max_length=30, default=None, blank=True)
+    message = models.CharField(max_length=30, null=True, blank=True)
 
     @classmethod
     def queryDueScheme(cls) -> QuerySet[TaskScheme]:
-        return cls.objects.filter(planTime__lt=currentStamp(), cancel=False, pause=False, )
+        return cls.objects.filter(planTime__lt=getNowTimeStamp() + 20, cancel=False, pause=False, )
 
     @classmethod
     def processDueScheme(cls):
@@ -147,15 +132,17 @@ class TaskScheme(TaskFieldPublic):
             taskScheme.nextTaskCreate()
 
     def nextTaskCreate(self):
-        currentTime = currentStamp()
-        if currentTime < self.planTime:
+        currentTime = getNowTimeStamp()
+        if currentTime + 20 < self.planTime:
             return False
 
         if self.cronStr:
-            planTime = self.planTime
-            cron = croniter(self.cronStr, currentTime)
-            self.planTime = cron.next()
-
+            # planTime = self.planTime
+            cronTimer = croniter(self.cronStr, currentTime)
+            nextPlanTime = cronTimer.next()
+            if nextPlanTime <= self.planTime:
+                return False
+            self.planTime = cronTimer.next()
         else:
             if not self.interval:
                 return False
@@ -163,31 +150,29 @@ class TaskScheme(TaskFieldPublic):
 
         # print(f'  TaskScheme {self.taskSchemeSn} create next task')
 
-        nextTaskRec = self.createTaskRec(planTime=self.planTime)
+        nextTaskRec = self.createTaskRec()
 
         self.currentTask = nextTaskRec
 
         self.save()
 
-    def createTaskRec(self, planTime: int | float) -> TaskRec:
+    def createTaskRec(self) -> TaskRec:
         nextTask = TaskRec(
             createUser=self.createUser,
 
-            type=TaskRec.TypeChoice.scheme,
-            name=f'''{self.name}-{Public.timeStampToString(planTime, formatStr='%Y%m%d-%H%M%S')}''',
+            # type=TaskRec.TypeChoice.scheme,
+            name=f'''{self.name}-{Public.timeStampToString(self.planTime, formatStr='%Y%m%d-%H%M%S')}''',
             tag=self.tag,
 
             taskSchemeSn=self.taskSchemeSn,
 
             planTime=self.planTime,
             priority=TaskRec.PriorityChoice.scheme,
+            executeTimeLimit=self.executeTimeLimit,
 
             config=self.config,
-            # func=self.func,
-            # args=self.args,
-            # kwargs=self.kwargs,
 
-            timeLimit=self.timeLimit,
+            timeLimit=self.executeTimeLimit,
             delay=self.retryDelay,
             retry=self.retryLimit,
         )
@@ -204,23 +189,28 @@ class TaskScheme(TaskFieldPublic):
 #         #      #### #  #####    #   ##   #     #   #####    #####
 
 class TaskRec(TaskFieldPublic):
+    class Meta:
+        # indexes = (
+        #     'taskSn',
+        # )
+        index_together = (
+            'taskSn',
+            'priority', 'type',
+            'prevTask', 'taskState',
+            'planTime', 'retryTime',
+            'pause', 'cancel',
+        )
+        ordering = (
+            'priority', 'taskSn',
+        )
+
     taskSn = models.BigAutoField(primary_key=True)  # task sn
 
-    # --------------------  --------------------
+    # -------------------- package & scheme --------------------
     taskPackageSn = models.BigIntegerField(null=True)  # 任务包 sn
     taskSchemeSn = models.BigIntegerField(null=True)  # 计划 sn
 
-    # taskPackage = models.ForeignKey(
-    #     to='TaskPackage', related_name='taskRec',
-    #     null=True, on_delete=models.SET_NULL,
-    # )  # 任务包
-    #
-    # taskScheme = models.ForeignKey(
-    #     to='TaskScheme', related_name='taskRec',
-    #     null=True, on_delete=models.SET_NULL,
-    # )  # 计划
-
-    # -------------------- state --------------------
+    # -------------------- task state --------------------
     class TaskStateChoice(models.IntegerChoices):
         fail = -100
         error = -10
@@ -233,10 +223,11 @@ class TaskRec(TaskFieldPublic):
         choices=TaskStateChoice.choices,
         default=TaskStateChoice.init,
     )  # 任务状态
+    taskStateTime = models.BigIntegerField(default=0)  # 状态标记时间
 
     previousTask = models.ForeignKey(
         to='self', null=True,
-        related_name='followTask', on_delete=models.CASCADE,
+        related_name='followTask', on_delete=models.PROTECT,
     )
 
     class ErrorCodeChoice(models.IntegerChoices):
@@ -244,9 +235,11 @@ class TaskRec(TaskFieldPublic):
         timeout = 200001
         invalidConfig = 300001
 
+    result = models.TextField(null=True, blank=False, )  # return value
+    detail = models.TextField(null=True, blank=False, )  # 记录 error / cancel 的详细信息
+
     errorCode = models.SmallIntegerField(null=True, choices=ErrorCodeChoice.choices, )  # 错误代码
     errorMessage = models.CharField(max_length=20, null=True, blank=False, )  # 错误信息
-    detail = models.TextField(null=True, blank=False, )  # 记录 error / cancel 的详细信息
 
     # -------------------- time stamp --------------------
     retryTime = models.BigIntegerField(default=0)  # 重试时间
@@ -255,28 +248,30 @@ class TaskRec(TaskFieldPublic):
     startTime = models.BigIntegerField(null=True)  # 开始时间
     endTime = models.BigIntegerField(null=True)  # 结束时间
 
-    executorName = models.CharField(null=True, max_length=30, )  # process name
+    workerName = models.CharField(null=True, max_length=30, )  # 名字
     execute = models.SmallIntegerField(default=0)  # 执行次数
 
     @classmethod
-    def getTaskRec(cls, taskSn: int) -> TaskRec | None:
+    def manageTaskRec(cls, taskSn: int) -> TaskRec | None:
         if not isinstance(taskSn, int):
             return None
         if not cls.objects.filter(taskSn=taskSn).exists():
             return None
         taskRec = cls.objects.get(taskSn=taskSn)
-        # if not cls.TriggerStateChoice.fail < taskRec.state < cls.TriggerStateChoice.success:
-        #     return None
+
+        if not cls.TaskStateChoice.fail < taskRec.taskState < cls.TaskStateChoice.success:
+            return None
+
         return taskRec
 
     @classmethod
     def getTaskQueue(
             cls, *_,
             size: int = None,
-            state: int = None, priority: int = None, taskType: int = None,
+            taskState: int = None, priority: int = None, taskType: int = None,
             **kwargs
     ) -> QuerySet[TaskRec]:
-        currentTime = currentStamp()
+        currentTime = getNowTimeStamp()
 
         querySize = Public.CONFIG.queueSize
         if isinstance(size, int):
@@ -290,12 +285,12 @@ class TaskRec(TaskFieldPublic):
         if isinstance(priority, int):
             qConfig.append(Q(priority__lte=priority))
 
-        if isinstance(state, int):
-            qConfig.append(Q(state=state))
+        if isinstance(taskState, int):
+            qConfig.append(Q(taskState=taskState))
 
         taskQuery = cls.objects.filter(
             Q(prevTask__isnull=True) | Q(prevTask__taskState__gte=cls.TaskStateChoice.success),  # 没有前置任务或已完成
-            state__gt=cls.TaskStateChoice.fail, state__lt=cls.TaskStateChoice.success,  # 状态介于 fail 和 success 之间
+            taskState__gt=cls.TaskStateChoice.fail, taskState__lt=cls.TaskStateChoice.success,  # 状态介于 fail 和 success 之间
             planTime__lte=currentTime, retryTime__lte=currentTime,  # planTime & retryTime 小于当前时间
             pause=False, cancel=False,  # 没有 暂停/取消
             *qConfig,
@@ -306,20 +301,20 @@ class TaskRec(TaskFieldPublic):
 
     @classmethod
     def overtimeTask(cls, ) -> QuerySet[TaskRec]:
-        currentTime = currentStamp()
+        currentTime = getNowTimeStamp()
         queryConfig = [
-            Q(state=cls.TaskStateChoice.running),
+            Q(taskState=cls.TaskStateChoice.running),
             Q(expireTime__lt=currentTime - 5),
         ]
 
         return cls.objects.filter(*queryConfig)
 
-    def updateState(self, state: int):
-        self.taskState = state
-        self.taskStateTime = currentStamp()
+    def updateState(self, taskState: int):
+        self.taskState = taskState
+        self.taskStateTime = getNowTimeStamp()
         self.save()
 
-    def setRunning(self, executorName: str) -> int:
+    def setRunning(self, workerName: str) -> int:
         if self.previousTask is not None:
             if self.previousTask.taskState < self.TaskStateChoice.success:
                 return False
@@ -328,10 +323,10 @@ class TaskRec(TaskFieldPublic):
             return False
 
         self.execute += 1
-        self.executorName = executorName[:30]
+        self.workerName = workerName[:30]
 
-        self.startTime = currentStamp()
-        self.timeout = self.startTime + self.timeLimit
+        self.startTime = getNowTimeStamp()
+        self.timeout = self.startTime + self.executeTimeLimit
 
         self.updateState(self.TaskStateChoice.running)
 
@@ -359,7 +354,7 @@ class TaskRec(TaskFieldPublic):
             self.updateState(self.TaskStateChoice.fail)
             return True
 
-        self.retryTime = currentStamp() + self.retryDelay
+        self.retryTime = getNowTimeStamp() + self.retryDelay
         self.updateState(self.TaskStateChoice.error)
         return True
 
@@ -370,29 +365,71 @@ class TaskRec(TaskFieldPublic):
         if result is not None:
             self.result = result
 
-        self.endTime = currentStamp()
+        self.endTime = getNowTimeStamp()
         self.updateState(self.TaskStateChoice.success)
         return True
 
-    def remove(self):
-        followTaskArr = tuple(self.followTask.all())
-        if self.taskState < TaskRec.TaskStateChoice.success:  # 当前任务未完成，后续任务标记为取消
-            for followTask in followTaskArr:
-                followTask.previousTask = None
-                followTask.cancel = True  # 后续任务标记为取消
-                followTask.detail = f'Previous task {self.taskSn}-{self.name} removed.'  # 标记取消原因
-                followTask.save()
-        else:  # 当前任务已完成，后续任务清除关联
-            for followTask in followTaskArr:
-                followTask.previousTask = None
-                followTask.save()
+    # def remove(self):
+    #     """
+    #     对每个任务调用 remove 进行删除，不要使用 delete
+    #     """
+    #     followTaskArr = tuple(self.followTask.all())
+    #     if self.taskState == TaskRec.TaskStateChoice.running:  # 运行中的任务无法删除
+    #         self.cancel = True  # 标记为取消
+    #         self.save()
+    #         return False
+    #
+    #     if self.taskState < TaskRec.TaskStateChoice.success:  # 当前任务未完成，后续任务标记为取消
+    #         for followTask in followTaskArr:
+    #             followTask.previousTask = None
+    #             followTask.cancel = True  # 后续任务标记为取消
+    #             followTask.detail = f'Previous task {self.taskSn}-{self.name} removed.'  # 标记取消原因
+    #             followTask.save()
+    #
+    #     else:  # 当前任务已完成，后续任务清除关联
+    #         for followTask in followTaskArr:
+    #             followTask.previousTask = None
+    #             followTask.save()
+    #
+    #     self.delete()
+    #
+    #     del self
+    #
+    #     return followTaskArr
 
-        self.delete()
 
-        del self
+def taskRecPreDelete(sender, instance: TaskRec, using, origin, **kwargs):
+    """
+    TaskRec 删除前处理
+    """
 
-        return followTaskArr
+    if instance.taskState == TaskRec.TaskStateChoice.running:  # 运行中的任务无法删除
+        instance.cancel = True  # 将任务标记为取消
+        instance.save()
+        return
 
+    followTaskArr = tuple(instance.followTask.all())
+
+    if instance.taskState < TaskRec.TaskStateChoice.success:
+        # 当前任务未完成，后续任务标记为取消
+        for followTask in followTaskArr:
+            followTask.previousTask = None
+            followTask.cancel = True  # 后续任务标记为取消
+            followTask.detail = f'Previous task {instance.taskSn}-{instance.name} removed.'  # 标记取消原因
+            followTask.save()
+        return
+
+    # 当前任务已完成，后续任务清除关联
+    for followTask in followTaskArr:
+        followTask.previousTask = None
+        followTask.save()
+
+
+pre_delete.connect(
+    taskRecPreDelete,
+    sender=TaskRec,
+    dispatch_uid='TaskRecPreDelete',
+)
 
 TaskRecQueueFields = (
     'taskSn', 'type', 'priority',

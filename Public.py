@@ -227,7 +227,7 @@ class TaskState:
 
     combine: int = None
     timeout: int = None
-    executor: str = None
+    workerName: str = None
     done: bool = False
 
 

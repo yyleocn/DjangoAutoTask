@@ -44,25 +44,16 @@ class AutoTaskHandler:
             ) for taskRec in queryRes
         ]
 
-    # -------------------- TaskRec manage --------------------
-    # @classmethod
-    # def setTaskState(cls, *_, taskSn, state: int, ):
-    #     taskRec = TaskRec.taskRecManage(taskSn=taskSn)
-    #     if taskRec is None:
-    #         return False
-    #     taskRec.setState(state=state)
-    #     return True
-
     @classmethod
     def setTaskRecSuccess(cls, *_, taskSn: int, result: any):
-        taskRec = TaskRec.getTaskRec(taskSn=taskSn)
+        taskRec = TaskRec.manageTaskRec(taskSn=taskSn)
         if taskRec is None:
             return False
         return taskRec.setSuccess(result=cls.serialize(result))
 
     @classmethod
     def setTaskRecInvalidConfig(cls, *_, taskSn: int, detail: str):
-        taskRec = TaskRec.getTaskRec(taskSn=taskSn)
+        taskRec = TaskRec.manageTaskRec(taskSn=taskSn)
         if taskRec is None:
             return False
         return taskRec.setError(
@@ -72,7 +63,7 @@ class AutoTaskHandler:
 
     @classmethod
     def setTaskRecCrash(cls, *_, taskSn: int, message: str, detail: str):
-        taskRec = TaskRec.getTaskRec(taskSn=taskSn)
+        taskRec = TaskRec.manageTaskRec(taskSn=taskSn)
         if taskRec is None:
             return False
         return taskRec.setError(
@@ -83,7 +74,7 @@ class AutoTaskHandler:
 
     @classmethod
     def setTaskTimeout(cls, *_, taskSn: int):
-        taskRec = TaskRec.getTaskRec(taskSn=taskSn)
+        taskRec = TaskRec.manageTaskRec(taskSn=taskSn)
         if taskRec is None:
             return False
 
@@ -93,14 +84,14 @@ class AutoTaskHandler:
         )
 
     @classmethod
-    def setTaskRunning(cls, *_, taskSn: int, executorName: str) -> int | None:
+    def setTaskRunning(cls, *_, taskSn: int, workerName: str) -> int | None:
         """
         根据 taskSn 设置 TaskRec 为 running 状态
         """
-        taskRec = TaskRec.getTaskRec(taskSn=taskSn)
+        taskRec = TaskRec.manageTaskRec(taskSn=taskSn)
         if taskRec is None:
             return None
-        return taskRec.setRunning(executorName=executorName, )
+        return taskRec.setRunning(workerName=workerName, )
 
     @classmethod
     def taskSchemeAuto(cls):
