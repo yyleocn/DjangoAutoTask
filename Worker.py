@@ -95,21 +95,21 @@ def workerFunc(workerConfig: WorkerProcessConfig, *args, **kwargs):
 
             print(f'  Task {taskConfig.sn} success')
 
-            # -------------------- send result --------------------
             Public.remoteProxyCall(
-                workerConfig.dispatcherClient.taskSuccess,
+                workerConfig.dispatcherClient.taskSuccess,  # 发送 taskSuccess
                 taskSn=taskConfig.sn,
                 result=result,
-            )  # 发送 taskSuccess
+            )
 
-        # -------------------- catch the dispatcher timeout exception --------------------
+            # -------------------- 捕获 TimeoutException --------------------
         except Public.ProxyTimeout as err_:
             print(f'Task dispatcher timeout @ worker {processID}')
 
-            # -------------------- task dispatcher timeout --------------------
             if currentTime - dispatcherCheckTime < Public.CONFIG.dispatcherTimeout:
+                # 没有超时等待 5 秒继续
                 time.sleep(5)
             else:
+                # 超时后 worker 退出
                 print(f'Task dispatcher timeout, worker {processID} exit')
                 exit()
 

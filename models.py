@@ -123,21 +123,20 @@ class TaskScheme(TaskFieldPublic):
 
     @classmethod
     def queryDueScheme(cls) -> QuerySet[TaskScheme]:
-        return cls.objects.filter(planTime__lt=getNowTimeStamp() + 20, cancel=False, pause=False, )
+        return cls.objects.filter(planTime__lt=getNowTimeStamp() + 30, cancel=False, pause=False, )
 
     @classmethod
     def processDueScheme(cls):
         dueSchemeArray = list(cls.queryDueScheme())
         for taskScheme in dueSchemeArray:
-            taskScheme.nextTaskCreate()
+            taskScheme.schemeApply()
 
-    def nextTaskCreate(self):
+    def schemeApply(self):
         currentTime = getNowTimeStamp()
-        if currentTime + 20 < self.planTime:
+        if currentTime + 30 < self.planTime:
             return False
 
         if self.cronStr:
-            # planTime = self.planTime
             cronTimer = croniter(self.cronStr, currentTime)
             nextPlanTime = cronTimer.next()
             if nextPlanTime <= self.planTime:
@@ -213,7 +212,7 @@ class TaskRec(TaskFieldPublic):
     # -------------------- task state --------------------
     class TaskStateChoice(models.IntegerChoices):
         fail = -100
-        error = -10
+        crash = -10
         init = 0
         running = 10
         success = 100
@@ -225,7 +224,7 @@ class TaskRec(TaskFieldPublic):
     )  # 任务状态
     taskStateTime = models.BigIntegerField(default=0)  # 状态标记时间
 
-    previousTask = models.ForeignKey(
+    previousTask = models.ForeignKey(  # 前置任务，可以实现任务链功能
         to='self', null=True,
         related_name='followTask', on_delete=models.PROTECT,
     )
@@ -355,7 +354,7 @@ class TaskRec(TaskFieldPublic):
             return True
 
         self.retryTime = getNowTimeStamp() + self.retryDelay
-        self.updateState(self.TaskStateChoice.error)
+        self.updateState(self.TaskStateChoice.crash)
         return True
 
     def setSuccess(self, result: str = None) -> bool:
@@ -403,7 +402,7 @@ def taskRecPreDelete(sender, instance: TaskRec, using, origin, **kwargs):
     TaskRec 删除前处理
     """
 
-    if instance.taskState == TaskRec.TaskStateChoice.running:  # 运行中的任务无法删除
+    if instance.taskState == TaskRec.TaskStateChoice.running:  # 运行中的任务不清除后置任务，无法删除
         instance.cancel = True  # 将任务标记为取消
         instance.save()
         return

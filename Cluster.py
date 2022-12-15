@@ -10,7 +10,14 @@ if TYPE_CHECKING:
     from .Dispatcher import DispatcherClient
 
 
-# -------------------- sub process --------------------
+#        #####            #        ######
+#       #     #           #        #     #
+#       #        #     #  ######   #     #   # ###    #####    #####    #####    #####    #####
+#        #####   #     #  #     #  ######    ##      #     #  #        #     #  #        #
+#             #  #     #  #     #  #         #       #     #  #        #######   ####     ####
+#       #     #  #    ##  #     #  #         #       #     #  #        #             #        #
+#        #####    #### #  ######   #         #        #####    #####    #####   #####    #####
+
 class WorkerProcess:
     def __init__(
             self, *_,
@@ -101,7 +108,14 @@ class WorkerProcess:
         return self.__sn
 
 
-# -------------------- worker cluster --------------------
+#         ####     ##                         #
+#        #    #     #                         #
+#       #           #     #     #   #####   ######    #####    # ###
+#       #           #     #     #  #          #      #     #   ##
+#       #           #     #     #   ####      #      #######   #
+#        #    #     #     #    ##       #     #      #         #
+#         ####     ###     #### #  #####       ###    #####    #
+
 class WorkerCluster:
     def __init__(
             self, *_, dispatcherConn: DispatcherClient = None, workerFunc: Callable,

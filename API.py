@@ -6,6 +6,14 @@ if Public.TYPE_CHECKING:
     from .Public import (TaskData, TaskConfig, Iterable, )
 
 
+#       #######                    #
+#          #                       #
+#          #      ######   #####   #   ##
+#          #     #     #  #        #  #
+#          #     #     #   ####    ###
+#          #     #    ##       #   #  #
+#          #      #### #  #####    #   ##
+
 def createTask(taskData: TaskData):
     taskRec = TaskRec(
         name=taskData.name,
@@ -13,6 +21,14 @@ def createTask(taskData: TaskData):
     )
     taskRec.save()
 
+
+#       #######                    #               ####   #                    #
+#          #                       #              #    #  #
+#          #      ######   #####   #   ##        #        ######    ######   ###     # ####
+#          #     #     #  #        #  #          #        #     #  #     #     #     ##    #
+#          #     #     #   ####    ###           #        #     #  #     #     #     #     #
+#          #     #    ##       #   #  #           #    #  #     #  #    ##     #     #     #
+#          #      #### #  #####    #   ##          ####   #     #   #### #   #####   #     #
 
 def createTaskChain(taskDataArr: Iterable[TaskData, ...]):
     prevTask = None
@@ -27,6 +43,14 @@ def createTaskChain(taskDataArr: Iterable[TaskData, ...]):
         taskRec.save()
         prevTask = taskRec
 
+
+#       #######                    #             ######                     #
+#          #                       #             #     #                    #
+#          #      ######   #####   #   ##        #     #   ######   #####   #   ##
+#          #     #     #  #        #  #          ######   #     #  #        #  #
+#          #     #     #   ####    ###           #        #     #  #        ###
+#          #     #    ##       #   #  #          #        #    ##  #        #  #
+#          #      #### #  #####    #   ##        #         #### #   #####   #   ##
 
 def createTaskPack(packageName: str, taskDataArr: Iterable[TaskData, ...]):
     taskPackageRec = TaskPackage(

@@ -97,4 +97,4 @@ class AutoTaskHandler:
     def taskSchemeAuto(cls):
         expireScheme = TaskScheme.queryDueScheme()
         for scheme in expireScheme:
-            scheme.nextTaskCreate()
+            scheme.schemeApply()

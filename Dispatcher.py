@@ -26,14 +26,14 @@ if Public.TYPE_CHECKING:
 from .Handler import AutoTaskHandler
 
 
-#    #######                    #        #####       #                                  #               #
-#       #                       #        #    #                                         #               #
-#       #      ######   #####   #   ##   #     #   ###      #####   ######    ######  ######    #####   ######    #####    # ###
-#       #     #     #  #        #  #     #     #     #     #        #     #  #     #    #      #        #     #  #     #   ##
-#       #     #     #   ####    ###      #     #     #      ####    #     #  #     #    #      #        #     #  #######   #
-#       #     #    ##       #   #  #     #    #      #          #   #     #  #    ##    #      #        #     #  #         #
-#       #      #### #  #####    #   ##   #####     #####   #####    ######    #### #     ###    #####   #     #   #####    #
-#                                                                   #
+#   #######                    #        #####       #                                  #               #
+#      #                       #        #    #                                         #               #
+#      #      ######   #####   #   ##   #     #   ###      #####   ######    ######  ######    #####   ######    #####    # ###
+#      #     #     #  #        #  #     #     #     #     #        #     #  #     #    #      #        #     #  #     #   ##
+#      #     #     #   ####    ###      #     #     #      ####    #     #  #     #    #      #        #     #  #######   #
+#      #     #    ##       #   #  #     #    #      #          #   #     #  #    ##    #      #        #     #  #         #
+#      #      #### #  #####    #   ##   #####     #####   #####    ######    #### #     ###    #####   #     #   #####    #
+#                                                                  #
 
 class TaskDispatcher:
     __pid: int = None
@@ -123,8 +123,8 @@ class TaskDispatcher:
 
         # --------------- sort by priority --------------------
         newQueue: list[TaskState] = [
-                                       taskRec for taskRec in (*runningTask, *appendTask, ) if not taskRec.done
-                                   ][:Public.CONFIG.queueSize]
+                                        taskRec for taskRec in (*runningTask, *appendTask,) if not taskRec.done
+                                    ][:Public.CONFIG.queueSize]
 
         # --------------- new queue sort --------------------
         newQueue.sort(key=attrgetter('priority', 'taskSn'))
@@ -235,7 +235,13 @@ class TaskDispatcher:
         }
 
 
-# -------------------- sync dispatcher --------------------
+#        #####
+#       #     #
+#       #         #####    # ###   ##   ##   #####    # ###
+#        #####   #     #   ##       #   #   #     #   ##
+#             #  #######   #         # #    #######   #
+#       #     #  #         #         # #    #         #
+#        #####    #####    #          #      #####    #
 
 class DispatcherServer(BaseManager):
     __methodBounded = False
@@ -259,6 +265,14 @@ class DispatcherServer(BaseManager):
 
         cls.__methodBounded = True
 
+
+#          #           #              #
+#          #           #
+#         ###     ######  ### ##    ###     # ####
+#         # #    #     #  #  #  #     #     ##    #
+#        #####   #     #  #  #  #     #     #     #
+#        #   #   #     #  #  #  #     #     #     #
+#       ##   ##   ######  #     #   #####   #     #
 
 class DispatcherAdmin(BaseManager):
     __methodBounded = False
@@ -284,6 +298,14 @@ class DispatcherAdmin(BaseManager):
 
         cls.__methodBounded = True
 
+
+#         ####     ##        #                         #
+#        #    #     #                                  #
+#       #           #      ###      #####   # ####   ######
+#       #           #        #     #     #  ##    #    #
+#       #           #        #     #######  #     #    #
+#        #    #     #        #     #        #     #    #
+#         ####     ###     #####    #####   #     #     ###
 
 class DispatcherClient(BaseManager):
     ping: Callable
