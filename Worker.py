@@ -80,16 +80,30 @@ def workerFunc(workerConfig: WorkerProcessConfig, *args, **kwargs):
             # -------------------- send time limit --------------------
             workerConfig.pipe.send(('timeLimit', taskConfig.timeLimit))
 
-            try:
-                # -------------------- executor task --------------------
-                result = taskFunc(*taskArgs, **taskKwargs)
-            except Exception as err_:
+            # -------------------- executor task --------------------
+            execWarn: str | None = None
+            exception = None
+            crashDetail = None
+            with Public.catch_warnings(record=True) as warnArr:  # 捕获 warnings
+                try:
+                    result = taskFunc(*taskArgs, **taskKwargs)
+                except Exception as exception_:  # 捕获 exception
+                    print(f'  Task {taskConfig.sn} crash: {exception_}')
+                    exception = exception_
+                    crashDetail = traceback.format_exc()
+                if warnArr:
+                    execWarn = '\n'.join(
+                        str(execWarn) for execWarn in warnArr
+                    )
+
+            if exception is not None:
                 # -------------------- after crash --------------------
-                print(f'  Task {taskConfig.sn} run error: {err_}')
                 Public.remoteProxyCall(
                     workerConfig.dispatcherClient.taskCrash,
                     taskSn=taskConfig.sn,
-                    detail=traceback.format_exc(),
+                    message=str(exception),
+                    detail=crashDetail,
+                    execWarn=execWarn,
                 )  # 发送 taskCrash 错误
                 continue
 
@@ -99,10 +113,11 @@ def workerFunc(workerConfig: WorkerProcessConfig, *args, **kwargs):
                 workerConfig.dispatcherClient.taskSuccess,  # 发送 taskSuccess
                 taskSn=taskConfig.sn,
                 result=result,
+                execWarn=execWarn,
             )
 
             # -------------------- 捕获 TimeoutException --------------------
-        except Public.ProxyTimeout as err_:
+        except Public.ProxyTimeout as exception_:
             print(f'Task dispatcher timeout @ worker {processID}')
 
             if currentTime - dispatcherCheckTime < Public.CONFIG.dispatcherTimeout:
@@ -113,5 +128,5 @@ def workerFunc(workerConfig: WorkerProcessConfig, *args, **kwargs):
                 print(f'Task dispatcher timeout, worker {processID} exit')
                 exit()
 
-        except Exception as err_:
-            print(f'* Worker {processID} crash @ {Public.currentTimeStr()} : {err_}')
+        except Exception as exception_:
+            print(f'* Worker {processID} crash @ {Public.currentTimeStr()} : {exception_}')

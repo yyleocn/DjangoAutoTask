@@ -45,11 +45,29 @@ class AutoTaskHandler:
         ]
 
     @classmethod
-    def setTaskRecSuccess(cls, *_, taskSn: int, result: any):
+    def setTaskRecSuccess(
+            cls, *_, taskSn: int,
+            result: any, execWarn: str | None = None,
+    ):
         taskRec = TaskRec.manageTaskRec(taskSn=taskSn)
         if taskRec is None:
             return False
-        return taskRec.setSuccess(result=cls.serialize(result))
+        return taskRec.setSuccess(result=cls.serialize(result), execWarn=execWarn, )
+
+    @classmethod
+    def setTaskRecCrash(
+            cls, *_, taskSn: int,
+            message: str, detail: str, execWarn: str | None = None,
+    ):
+        taskRec = TaskRec.manageTaskRec(taskSn=taskSn)
+        if taskRec is None:
+            return False
+        return taskRec.setError(
+            errorCode=TaskRec.ErrorCodeChoice.crash,
+            message=message,
+            detail=detail,
+            execWarn=execWarn,
+        )
 
     @classmethod
     def setTaskRecInvalidConfig(cls, *_, taskSn: int, detail: str):
@@ -59,17 +77,6 @@ class AutoTaskHandler:
         return taskRec.setError(
             errorCode=TaskRec.ErrorCodeChoice.invalidConfig,
             message='Invalid config', detail=detail,
-        )
-
-    @classmethod
-    def setTaskRecCrash(cls, *_, taskSn: int, message: str, detail: str):
-        taskRec = TaskRec.manageTaskRec(taskSn=taskSn)
-        if taskRec is None:
-            return False
-        return taskRec.setError(
-            errorCode=TaskRec.ErrorCodeChoice.crash,
-            message=message,
-            detail=detail,
         )
 
     @classmethod

@@ -234,8 +234,9 @@ class TaskRec(TaskFieldPublic):
         timeout = 200001
         invalidConfig = 300001
 
-    result = models.TextField(null=True, blank=False, )  # return value
-    detail = models.TextField(null=True, blank=False, )  # 记录 error / cancel 的详细信息
+    result = models.TextField(null=True, blank=False, default=None, )  # return value
+    detail = models.TextField(null=True, blank=False, default=None, )  # 记录 error / cancel 的详细信息
+    execWarn = models.TextField(null=True, blank=False, default=None, )
 
     errorCode = models.SmallIntegerField(null=True, choices=ErrorCodeChoice.choices, )  # 错误代码
     errorMessage = models.CharField(max_length=20, null=True, blank=False, )  # 错误信息
@@ -331,7 +332,10 @@ class TaskRec(TaskFieldPublic):
 
         return self.timeout
 
-    def setError(self, errorCode: ErrorCodeChoice, message: str = None, detail: str = None) -> bool:
+    def setError(
+            self, errorCode: ErrorCodeChoice,
+            message: str = None, detail: str = None, execWarn: str = None,
+    ) -> bool:
         if not self.taskState == self.TaskStateChoice.running:
             return False
 
@@ -343,6 +347,9 @@ class TaskRec(TaskFieldPublic):
 
         if isinstance(detail, str):
             self.detail = detail
+
+        if isinstance(execWarn, str):
+            self.execWarn = execWarn
 
         if errorCode == self.ErrorCodeChoice.invalidConfig:
             self.errorCode = self.ErrorCodeChoice.invalidConfig
@@ -357,12 +364,15 @@ class TaskRec(TaskFieldPublic):
         self.updateState(self.TaskStateChoice.crash)
         return True
 
-    def setSuccess(self, result: str = None) -> bool:
+    def setSuccess(self, result: str = None, execWarn: str | None = None, ) -> bool:
         if not self.taskState == self.TaskStateChoice.running:
             return False
 
-        if result is not None:
+        if isinstance(result, str):
             self.result = result
+
+        if isinstance(execWarn, str):
+            self.execWarn = execWarn
 
         self.endTime = getNowTimeStamp()
         self.updateState(self.TaskStateChoice.success)

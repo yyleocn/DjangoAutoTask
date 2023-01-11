@@ -12,6 +12,8 @@ from multiprocessing.connection import Connection
 from django.conf import settings
 from dataclasses_json import dataclass_json
 
+from warnings import warn, catch_warnings
+
 if TYPE_CHECKING:
     from .Dispatcher import DispatcherClient
 
@@ -250,10 +252,12 @@ def remoteProxyCall(func: Callable, *args, retry=5, **kwargs):
     raise ProxyTimeout(f'TaskDispatcher call {func.__name__} fail')
 
 
+_ = (
+    Iterator, Iterable, warn, catch_warnings,
+)
 __all__ = (
     'currentTimeStr', 'getNowStamp', 'timeStampToString',
-    'CONFIG', 'Iterator',
-    'TaskInfo', 'ReadonlyDict',
+    'CONFIG', 'TaskInfo', 'ReadonlyDict',
     'importComponent', 'importFunction',
     'WorkerProcessConfig', 'TaskInfo', 'TaskState',
     'remoteProxyCall', 'ProxyTimeout',

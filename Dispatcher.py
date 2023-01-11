@@ -186,16 +186,16 @@ class TaskDispatcher:
         self.__taskDict.pop(taskSn)
         return True
 
-    def taskSuccess(self, *_, taskSn: int = None, result: any = None, ):
+    def taskSuccess(self, *_, taskSn: int = None, result: any = None, execWarn: str | None = None, ):
         print(f'  Task {taskSn} success, result is {result}')
         self.removeTask(taskSn)
-        return self.__handler.setTaskRecSuccess(taskSn=taskSn, result=result, )
+        return self.__handler.setTaskRecSuccess(taskSn=taskSn, result=result, execWarn=execWarn, )
 
-    def taskCrash(self, *_, taskSn: int, message: str, detail: str, ):
+    def taskCrash(self, *_, taskSn: int, message: str, detail: str, execWarn: str | None = None, ):
         print(f'  Task {taskSn} crash: {message}')
         self.removeTask(taskSn)
         return self.__handler.setTaskRecCrash(
-            taskSn=taskSn, message=message, detail=detail,
+            taskSn=taskSn, message=message, detail=detail, execWarn=execWarn,
         )
 
     def taskTimeout(self, *_, taskSn: int, ):
