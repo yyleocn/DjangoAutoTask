@@ -1,3 +1,4 @@
+from __future__ import annotations
 import json
 
 from django.core.exceptions import AppRegistryNotReady
@@ -15,7 +16,7 @@ from . import Public
 if Public.TYPE_CHECKING:
     from .Public import TaskState
 
-from .models import TaskScheme, TaskRec, TaskRecQueueFields
+from .models import TaskScheme, TaskRec
 
 
 class AutoTaskHandler:
@@ -32,7 +33,7 @@ class AutoTaskHandler:
     @classmethod
     def getTaskQueue(cls, *_, taskType: int | None = None, limit: int | None = None) -> list[TaskState]:
 
-        queryRes = TaskRec.getTaskQueue(taskType=taskType, size=limit).values(*TaskRecQueueFields)
+        queryRes = TaskRec.getTaskQueue(taskType=taskType, size=limit).values(*TaskRec.ValueFields)
         return [
             Public.TaskState(
                 taskSn=taskRec['taskSn'], combine=taskRec['combine'], priority=taskRec['priority'],

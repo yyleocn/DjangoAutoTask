@@ -86,7 +86,7 @@ class TaskDispatcher:
         time.sleep(5)
         exit()
 
-    def refreshQueue(self):
+    def refreshTaskQueue(self):
         # --------------- lock queue --------------------
         self.__taskQueueLock = True
 

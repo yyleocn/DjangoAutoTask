@@ -31,17 +31,17 @@ def createTask(taskData: TaskData):
 #          #      #### #  #####    #   ##          ####   #     #   #### #   #####   #     #
 
 def createTaskChain(taskDataArr: Iterable[TaskData, ...]):
-    prevTask = None
+    previousTask = None
     taskData: TaskData
     for index, taskData in enumerate(taskDataArr):
         taskRec = TaskRec(
             name=taskData.name,
             config=taskData.taskConfig.to_json(),
-            prevTask=prevTask,
+            prevTask=previousTask,
             note=taskData.note,
         )
         taskRec.save()
-        prevTask = taskRec
+        previousTask = taskRec
 
 
 #       #######                    #             ######                     #

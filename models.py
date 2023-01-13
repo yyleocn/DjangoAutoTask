@@ -193,11 +193,9 @@ class TaskRec(TaskFieldPublic):
         #     'taskSn',
         # )
         index_together = (
-            'taskSn',
-            'priority', 'type',
-            'prevTask', 'taskState',
+            'taskSn', 'priority', 'previousTask',
             'planTime', 'retryTime',
-            'pause', 'cancel',
+            'taskState', 'pause', 'cancel',
         )
         ordering = (
             'priority', 'taskSn',
@@ -251,6 +249,10 @@ class TaskRec(TaskFieldPublic):
     workerName = models.CharField(null=True, max_length=30, )  # 名字
     execute = models.SmallIntegerField(default=0)  # 执行次数
 
+    ValueFields = (
+        'taskSn', 'priority', 'combine', 'executeTimeLimit', 'config',
+    )
+
     @classmethod
     def manageTaskRec(cls, taskSn: int) -> TaskRec | None:
         if not isinstance(taskSn, int):
@@ -289,7 +291,7 @@ class TaskRec(TaskFieldPublic):
             qConfig.append(Q(taskState=taskState))
 
         taskQuery = cls.objects.filter(
-            Q(prevTask__isnull=True) | Q(prevTask__taskState__gte=cls.TaskStateChoice.success),  # 没有前置任务或已完成
+            Q(previousTask__isnull=True) | Q(previousTask__taskState__gte=cls.TaskStateChoice.success),  # 没有前置任务或已完成
             taskState__gt=cls.TaskStateChoice.fail, taskState__lt=cls.TaskStateChoice.success,  # 状态介于 fail 和 success 之间
             planTime__lte=currentTime, retryTime__lte=currentTime,  # planTime & retryTime 小于当前时间
             pause=False, cancel=False,  # 没有 暂停/取消
@@ -438,9 +440,4 @@ pre_delete.connect(
     taskRecPreDelete,
     sender=TaskRec,
     dispatch_uid='TaskRecPreDelete',
-)
-
-TaskRecQueueFields = (
-    'taskSn', 'type', 'priority',
-    'func', 'args', 'kwargs', 'combine', 'callback', 'timeLimit', 'priority',
 )
