@@ -59,11 +59,11 @@ def workerFunc(workerConfig: WorkerProcessConfig, *args, **kwargs):
             dispatcherCheckTime = currentTime
 
             if taskConfig == 1:
-                time.sleep(0.5)  # 1 表示忙碌状态，暂停 0.5 秒
+                time.sleep(0.5)  # -1 表示忙碌状态，暂停 0.5 秒
                 continue
             if taskConfig == 0:
                 print('Task queue is empty, waiting.')
-                time.sleep(5)  # 0 表示目前没有任务，暂停 5 秒
+                time.sleep(5)  # 1 表示目前没有任务，暂停 5 秒
                 continue
             if taskConfig == -1:
                 break  # 0 表示管理器进入关闭状态，退出循环

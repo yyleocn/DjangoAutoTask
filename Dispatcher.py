@@ -215,11 +215,12 @@ class TaskDispatcher:
 
         else:
             print('Invalid ping message')
-            return -1
+            return -99  # -99 表示错误信息
 
         if not self.isRunning():
-            return 0
-        return 1
+            return -1  # -1 表示关闭
+
+        return 0  # 0 表示正常
 
     def status(self):
         return {

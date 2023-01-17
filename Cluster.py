@@ -24,20 +24,25 @@ class WorkerProcess:
     def __init__(
             self, *_,
             sn: int, localName: str, workerFunc,
-            dispatcher: DispatcherClient, shutdownEvent,
+            dispatcher: DispatcherClient, clusterOffline,
     ):
         self.__sn = sn
         self.__workerProcess: Process | None = None
         self.__taskDispatcher: DispatcherClient = dispatcher
-        self.__shutdownEvent = shutdownEvent
+        self.__clusterOffline = clusterOffline
         self.__workerFunc = workerFunc
+        self.__localName: str = localName
 
         self.__workerTimeLimit: int = 0
         self.__workerPipe, self.__pipe = Pipe()
 
-        self.__localName: str = localName
 
-        self.createProcess()
+    def __str__(self):
+        pid = self.pid
+        if pid:
+            return f'Worker-{self.__sn:02d}-{pid}'
+
+        return f'Worker-{self.__sn:02d}'
 
     def refreshWorkerTimeLimit(self, timeLimit=None):
         if timeLimit is None:
@@ -48,7 +53,7 @@ class WorkerProcess:
 
     def createProcess(self):
         if parent_process():
-            print('Only cluster process can create worker.')
+            print('子进程无法再建立 WorkerProcess')
             return
 
         while self.__pipe.poll():
@@ -61,7 +66,7 @@ class WorkerProcess:
             args=(
                 Public.WorkerProcessConfig(
                     sn=self.__sn,
-                    shutdownEvent=self.__shutdownEvent,
+                    shutdownEvent=self.__clusterOffline,
                     dispatcherClient=self.__taskDispatcher,
                     pipe=self.__workerPipe,
                     localName=self.__localName,
@@ -77,7 +82,7 @@ class WorkerProcess:
             return False
         return self.__workerProcess.is_alive()
 
-    def checkProcess(self):
+    def checkProcess(self) -> int:
         while self.__pipe.poll():
             code, value = self.__pipe.recv()
             match code:
@@ -88,19 +93,23 @@ class WorkerProcess:
 
         if self.__workerTimeLimit < time.time():
             self.workerTerminate()
+            time.sleep(1)
 
-        if self.__shutdownEvent.is_set():
-            return
+        if self.__clusterOffline.is_set():
+            return 0
 
         if not self.isAlive():
             self.createProcess()
+            return 1
+
+        return 0
 
     def workerTerminate(self):
         if not self.isAlive():
             return True
 
-        print(f'-- Worker {self.__sn}|{self.__workerProcess.pid} timeout, terminate')
         self.__workerProcess.terminate()
+        print(f'{self} 超时，已终止')
         time.sleep(0.5)
 
     @property
@@ -130,57 +139,48 @@ class WorkerCluster:
         if dispatcherConn is None:
             raise Exception('Invalid task dispatcher')
 
-        self.__poolSize: int = poolSize
-        self.__processPool: list[WorkerProcess | None] = [None for _ in range(poolSize)]
-        self.__localName: str = localName
-
-        self.__shutdownEvent = Event()
-        self.__shutdownEvent.clear()
-
-        self.__dispatcherStatus = 1
-        self.__exit = False
-        # set the exitEvent() when dispatcherStatus < 0 or exit = True
-
         self.__dispatcherConn: DispatcherClient = dispatcherConn
         self.__workerFunc = workerFunc
+        self.__localName: str = localName
+
+        self.__clusterOffline = Event()
+        self.__clusterOffline.clear()
+        self.__shutdown = False
+
+        self.__poolSize: int = poolSize
+        self.__processPool: tuple[WorkerProcess, ...] = tuple(
+            WorkerProcess(
+                sn=index + 1,
+                clusterOffline=self.__clusterOffline,
+                workerFunc=self.__workerFunc,
+                dispatcher=self.__dispatcherConn,
+                localName=self.__localName,
+            )
+            for index in range(poolSize)
+        )
 
         def shutdownHandler(*_):
-            print(f'Cluster {self.pid} receive shutdown signal @ {Public.currentTimeStr()}')
-            self.shutdown()
+            print(f'{self} receive shutdown signal @ {Public.currentTimeStr()}')
+            self.__shutdown = True
+            self.offline()
 
         for sig in (signal.SIGINT, signal.SIGTERM, signal.SIGILL,):
             signal.signal(sig, shutdownHandler)
 
         initTime = time.time()
-        while True:
-            if self.__shutdownEvent.is_set():
-                break
-            try:
-                print(f'Cluster {self.pid} connecting task dispatcher.')
-                self.__dispatcherConn.connect()
-                break
-            except Exception as err_:
-                print(f'Connect fail, waiting for retry.')
-                time.sleep(5)
 
-        print(f'Cluster {self.pid} start to create process, pool size is {self.__poolSize}')
+        print(f'{self} init, pool size is {self.__poolSize}')
+
+    def __str__(self):
+        return f'Cluster-{self.__localName}-{self.pid}'
 
     def checkSubProcess(self):
-        if not self.running:
+        if not self.isOnline:
             return None
 
-        for index, subProcess in enumerate(self.__processPool):
-            if subProcess is None:
-                self.__processPool[index] = WorkerProcess(
-                    sn=index + 1,
-                    shutdownEvent=self.__shutdownEvent,
-                    workerFunc=self.__workerFunc,
-                    dispatcher=self.__dispatcherConn,
-                    localName=self.__localName,
-                )
-                continue
-
-            subProcess.checkProcess()
+        for subProcess in self.__processPool:
+            if subProcess.checkProcess():
+                return
 
     @property
     def pid(self):
@@ -193,21 +193,18 @@ class WorkerCluster:
         ]
 
     @property
-    def running(self):
-        if self.__exit:
-            return False
-        if self.__dispatcherStatus == 0:
-            return False
-        if self.__shutdownEvent.is_set():
-            return False
-
-        return True
+    def isOnline(self):
+        return not self.__clusterOffline.is_set()
 
     def run(self):
         dispatcherCheckTime = 0
         while True:
-            if self.__exit:
-                break
+            if not self.isOnline:
+                if self.__shutdown:
+                    break
+
+                print(f'{self} 已关闭 @ {Public.currentTimeStr()}')
+                time.sleep(30)
 
             if time.time() - dispatcherCheckTime > 10:
                 try:
@@ -215,44 +212,57 @@ class WorkerCluster:
                         {
                             'name': self.__localName,
                             'pid': self.workerPid,
-                            'status': 'running' if self.running else 'shutdown',
+                            'status': 'online' if self.isOnline else 'offline',
                         }
-                    )._getvalue()
-                    self.__dispatcherStatus = pingRes
-                    dispatcherCheckTime = time.time()
+                    )._getvalue()  # Ping 连接 dispatcher
+
+                    if pingRes < 0:  # 结果小于 0 表示请求错误，
+                        print(f'{self} >>> dispatcher 通讯错误: {pingRes}')
+
+                    if pingRes == 0:  # 结果等于 0 表示 dispatcher 已关闭,执行关闭程序
+                        self.offline()
+
+                    if pingRes > 0:
+                        dispatcherCheckTime = time.time()
+                        self.online()
+
                 except Exception as err_:
-                    self.__dispatcherStatus = 0
-                    print(f'Cluster {self.pid} connect task dispatcher fail: {err_}')
+                    print(f'{self} >>> dispatcher 连接失败: {err_}')
                     time.sleep(5)
                     continue
 
-                if self.running:
-                    self.checkSubProcess()
+                if time.time() - dispatcherCheckTime > 120:
+                    self.offline()
 
-                if not self.running:
-                    print('Cluster is shutdown.')
+            if self.isOnline:
+                self.checkSubProcess()
 
             time.sleep(1)
 
         exit()
 
-    def shutdown(self):
-        self.__shutdownEvent.set()  # 激活关闭事件
+    def offline(self):
+        self.__clusterOffline.set()  # 激活关闭事件
+        print(f'{self} >>> 准备下线')
 
         while True:
-            allStop = True
+            subProcessAllExit = True
             for subProcess in self.__processPool:
+                if not subProcess:
+                    continue
+
                 subProcess.checkProcess()
                 if subProcess.isAlive():
-                    allStop = False
+                    subProcessAllExit = False
 
-            if allStop:
-                print(f'Cluster {self.pid} ready to exit @ {Public.currentTimeStr()}')
-                self.__exit = True
-
+            if subProcessAllExit:
+                print(f'{self} >>> 已下线')
                 return None
 
             time.sleep(0.5)
+
+    def online(self):
+        self.__clusterOffline.clear()
 
 
 __all__ = (
