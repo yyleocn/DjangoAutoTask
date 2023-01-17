@@ -18,7 +18,7 @@ def workerFunc(workerConfig: WorkerProcessConfig, *args, **kwargs):
     workerStopEvent = Event()
     workerStopEvent.clear()
 
-    processID = f'{workerConfig.sn}-{pid}'
+    processID = f'{workerConfig.sn:02d} - {pid:<5d}'
     workerConfig.dispatcherClient.methodBound()
 
     print(f'* Worker {processID} start @ {Public.currentTimeStr()}')
@@ -62,6 +62,7 @@ def workerFunc(workerConfig: WorkerProcessConfig, *args, **kwargs):
                 time.sleep(0.5)  # 1 表示忙碌状态，暂停 0.5 秒
                 continue
             if taskConfig == 0:
+                print('Task queue is empty, waiting.')
                 time.sleep(5)  # 0 表示目前没有任务，暂停 5 秒
                 continue
             if taskConfig == -1:

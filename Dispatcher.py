@@ -133,7 +133,7 @@ class TaskDispatcher:
         self.__taskDict = {taskRec.taskSn: taskRec for taskRec in newQueue}
         self.__taskQueue = newQueue
 
-        print(f'TaskDispatcher refreshed queue, current count is {len(self.__taskQueue)}')
+        print(f'TaskDispatcher refresh queue, current count is {len(self.__taskQueue)}')
 
         # --------------- unlock queue --------------------
         self.__taskQueueLock = False

@@ -43,6 +43,7 @@ class WorkerProcess:
         if timeLimit is None:
             self.__workerTimeLimit = Public.getNowStamp() + Public.CONFIG.taskTimeLimit + 2
             return
+
         self.__workerTimeLimit = Public.getNowStamp() + timeLimit + 2
 
     def createProcess(self):
@@ -85,11 +86,14 @@ class WorkerProcess:
                 case 'timeLimit':
                     self.refreshWorkerTimeLimit(value)
 
-        if not self.isAlive() and not self.__shutdownEvent.is_set():
-            self.createProcess()
-
         if self.__workerTimeLimit < time.time():
             self.workerTerminate()
+
+        if self.__shutdownEvent.is_set():
+            return
+
+        if not self.isAlive():
+            self.createProcess()
 
     def workerTerminate(self):
         if not self.isAlive():
@@ -126,21 +130,19 @@ class WorkerCluster:
         if dispatcherConn is None:
             raise Exception('Invalid task dispatcher')
 
-        self.__processPool: list[WorkerProcess] = []
         self.__poolSize: int = poolSize
+        self.__processPool: list[WorkerProcess | None] = [None for _ in range(poolSize)]
         self.__localName: str = localName
 
         self.__shutdownEvent = Event()
         self.__shutdownEvent.clear()
 
-        self.__dispatcherStatus = 0
-        self.__shutdown = False
+        self.__dispatcherStatus = 1
+        self.__exit = False
         # set the exitEvent() when dispatcherStatus < 0 or exit = True
 
         self.__dispatcherConn: DispatcherClient = dispatcherConn
         self.__workerFunc = workerFunc
-
-        self.__processCounter = 0
 
         def shutdownHandler(*_):
             print(f'Cluster {self.pid} receive shutdown signal @ {Public.currentTimeStr()}')
@@ -163,22 +165,22 @@ class WorkerCluster:
 
         print(f'Cluster {self.pid} start to create process, pool size is {self.__poolSize}')
 
-    def appendProcess(self):
-        if len(self.__processPool) >= self.__poolSize:
-            return None
+    def checkSubProcess(self):
         if not self.running:
             return None
 
-        while len(self.__processPool) < self.__poolSize:
-            self.__processCounter += 1
-            process = WorkerProcess(
-                sn=self.__processCounter,
-                shutdownEvent=self.__shutdownEvent,
-                workerFunc=self.__workerFunc,
-                dispatcher=self.__dispatcherConn,
-                localName=self.__localName,
-            )
-            self.__processPool.append(process)
+        for index, subProcess in enumerate(self.__processPool):
+            if subProcess is None:
+                self.__processPool[index] = WorkerProcess(
+                    sn=index + 1,
+                    shutdownEvent=self.__shutdownEvent,
+                    workerFunc=self.__workerFunc,
+                    dispatcher=self.__dispatcherConn,
+                    localName=self.__localName,
+                )
+                continue
+
+            subProcess.checkProcess()
 
     @property
     def pid(self):
@@ -187,24 +189,24 @@ class WorkerCluster:
     @property
     def workerPid(self):
         return [
-            worker.pid for worker in self.__processPool if worker.isAlive()
+            worker.pid for worker in self.__processPool if worker
         ]
 
     @property
     def running(self):
-        if self.__shutdown or self.__dispatcherStatus < 0:
+        if self.__exit:
             return False
+        if self.__dispatcherStatus == 0:
+            return False
+        if self.__shutdownEvent.is_set():
+            return False
+
         return True
 
     def run(self):
         dispatcherCheckTime = 0
         while True:
-            if not self.running:
-                self.__shutdownEvent.set()
-            else:
-                self.__shutdownEvent.clear()
-
-            if self.__shutdown:
+            if self.__exit:
                 break
 
             if time.time() - dispatcherCheckTime > 10:
@@ -219,21 +221,20 @@ class WorkerCluster:
                     self.__dispatcherStatus = pingRes
                     dispatcherCheckTime = time.time()
                 except Exception as err_:
+                    self.__dispatcherStatus = 0
                     print(f'Cluster {self.pid} connect task dispatcher fail: {err_}')
                     time.sleep(5)
                     continue
 
-            for subProcess in self.__processPool:
-                subProcess.checkProcess()
+                if self.running:
+                    self.checkSubProcess()
 
-            self.appendProcess()
+                if not self.running:
+                    print('Cluster is shutdown.')
+
             time.sleep(1)
 
         exit()
-
-    @property
-    def exitEvent(self):
-        return self.__shutdownEvent
 
     def shutdown(self):
         self.__shutdownEvent.set()  # 激活关闭事件
@@ -247,7 +248,7 @@ class WorkerCluster:
 
             if allStop:
                 print(f'Cluster {self.pid} ready to exit @ {Public.currentTimeStr()}')
-                self.__shutdown = True
+                self.__exit = True
 
                 return None
 
