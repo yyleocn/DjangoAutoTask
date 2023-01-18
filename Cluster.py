@@ -45,7 +45,7 @@ class WorkerProcess:
 
     def refreshWorkerTimeLimit(self, timeLimit=None):
         if timeLimit is None:
-            self.__workerTimeLimit = Public.getNowStamp() + Public.CONFIG.taskTimeLimit + 2
+            self.__workerTimeLimit = Public.getNowStamp() + Public.CONFIG.execTimeLimit + 2
             return
 
         self.__workerTimeLimit = Public.getNowStamp() + timeLimit + 2
@@ -225,22 +225,22 @@ class WorkerCluster:
                     raise Exception from err_
 
                 if pingRes > 0:
-                    dispatcherCheckTime = time.time()
+                    dispatcherCheckTime = time.time()  # 正常状态更新调度器时间
                     if self.__clusterOffline.is_set():
                         print(f'{self} 上线 @ {Public.currentTimeStr()}')
                         self.__clusterOffline.clear()
 
                 if pingRes < 0:
-                    if pingRes == -1:  # 结果等于 -1 表示 dispatcher 已关闭,执行关闭程序
+                    if pingRes == -1:  # 结果等于 -1 表示调度器已关闭,执行关闭程序
                         self.offline()
 
                     if pingRes < -10:  # 结果小于 -10 表示请求错误，
                         print(f'{self} >>> dispatcher 通讯错误: {pingRes}')
 
                 if pingRes == 0:
-                    self.offline()
+                    pass  # 空闲状态没有操作
 
-                if time.time() - dispatcherCheckTime > 120:
+                if time.time() - dispatcherCheckTime > Public.CONFIG.dispatcherTimeout:
                     self.offline()
 
             self.checkSubProcess()

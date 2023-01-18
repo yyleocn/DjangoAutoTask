@@ -4,7 +4,7 @@ from . import Public
 from .models import TaskRec, TaskScheme, TaskPackage
 
 if Public.TYPE_CHECKING:
-    from .Public import (TaskData, TaskConfig, Iterable, )
+    from .Public import (TaskData, Iterable, )
 
 
 #       #######                    #
@@ -17,8 +17,7 @@ if Public.TYPE_CHECKING:
 
 def createTask(taskData: TaskData):
     taskRec = TaskRec(
-        name=taskData.name,
-        configJson=taskData.configJson,
+        **taskData.exportToSaveModel()
     )
     taskRec.save()
 
@@ -35,10 +34,8 @@ def createTaskChain(taskDataArr: Iterable[TaskData, ...]):
     previousTask = None
     for taskData in taskDataArr:
         taskRec = TaskRec(
-            name=taskData.name,
-            configJson=taskData.configJson,
+            **taskData.exportToSaveModel(),
             previousTask=previousTask,
-            note=taskData.note,
         )
         taskRec.save()
         previousTask = taskRec

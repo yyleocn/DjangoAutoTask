@@ -142,7 +142,7 @@ class TaskDispatcher:
         # --------------- unlock queue --------------------
         self.__taskQueueLock = False
 
-    def getState(self):
+    def statusCode(self):
         if not self.isRunning():
             return -1  # 关闭状态为 -1
 
@@ -154,8 +154,8 @@ class TaskDispatcher:
 
     def getTask(self, *args, workerName: str = None, combine: int = None, **kwargs) -> str | int:
         while True:
-            state = self.getState()
-            if state < 0:
+            state = self.statusCode()
+            if state <= 0:
                 return state  # 关闭/空闲 状态直接返回
 
             if self.__taskQueueLock:
@@ -191,7 +191,7 @@ class TaskDispatcher:
             if isinstance(selectTask.taskData.blockKey, str):
                 self.__taskBlockSet.add(selectTask.taskData.blockKey)
             print(f'{workerName} get task {selectTask.taskData.taskSn}')
-            return selectTask.getTaskDataStr()
+            return selectTask.exportToWorker()
 
     def removeTask(self, taskSn: int):
         taskState = self.__taskDict.get(taskSn)
@@ -223,8 +223,10 @@ class TaskDispatcher:
         print(f'任务 {taskSn} 超时')
         return self.__handler.setTaskTimeout(taskSn=taskSn)
 
-    def invalidConfig(self, *_, taskSn: int, detail: str = None):
-        return self.__handler.setTaskRecInvalidConfig(taskSn=taskSn, detail=detail)
+    def invalidConfig(self, *_, workerName: str, detail: str = None):
+        for taskState in self.__taskQueue:
+            if taskState.workerName == workerName:
+                return self.__handler.setTaskRecInvalidConfig(taskSn=taskState.taskSn, detail=detail)
 
     def ping(self, state, *_, ):
         if isinstance(state, dict):
@@ -238,7 +240,7 @@ class TaskDispatcher:
             print('Invalid ping message')
             return -99  # -99 表示错误信息
 
-        return self.getState()  # 0 空闲
+        return self.statusCode()  # 0 空闲
 
     def status(self):
         return {

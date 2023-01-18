@@ -1,12 +1,13 @@
 from __future__ import annotations
 
+import json
 import time
 
 from pydoc import safeimport
 
-from inspect import getmodule
+from inspect import getmodule, isfunction
 
-from typing import (TYPE_CHECKING, Callable, Iterator, TypeAlias, Iterable, )
+from typing import (TYPE_CHECKING, Callable, Iterator, TypeAlias, Iterable, TypedDict, )
 from types import (FunctionType, )
 
 from multiprocessing import Event
@@ -92,7 +93,7 @@ class AutoTaskConfig:
     host: str = 'localhost'
     port: int = 8890
     queueSize: int = 500
-    dispatcherTimeout: int = 300
+    dispatcherTimeout: int = 120
 
     # cluster
     name: str = 'AutoTask'
@@ -100,9 +101,9 @@ class AutoTaskConfig:
     workerLifetime: int = 600
 
     # task
-    taskTimeLimit: int = 20
-    taskRetryDelay: int = 30
-    taskRetryCount: int = 5
+    execTimeLimit: int = 20
+    execLimit: int = 5
+    retryDelay: int = 30
 
     # handler: AutoTaskHandler = None
 
@@ -155,35 +156,13 @@ class WorkerProcessConfig:
     pipe: Connection
 
 
-@dataclass_json
-@dataclasses.dataclass(frozen=True)
-class TaskConfig:
-    funcPath: str = None
-    args: tuple | list | None = None
-    kwargs: dict | None = None
+class WorkerTaskData(TypedDict):
+    taskSn: int
+    execTimeLimit: int
 
-    @classmethod
-    def pack(cls, func: Callable, args: tuple | list = None, kwargs: dict = None):
-        funcPath = f'{getmodule(func).__name__}.{func.__name__}'
-        return cls(
-            funcPath=funcPath,
-            args=args,
-            kwargs=kwargs,
-        )
-
-    # -------------------- unpack --------------------
-    def unpack(self) -> tuple[Callable, list, dict]:
-        taskFunc = importFunction(self.funcPath)
-        assert isinstance(taskFunc, FunctionType), 'TaskConfig 内 func 无效'
-        args: list = self.args
-        if args is None:
-            args = []
-
-        kwargs: dict = self.kwargs
-        if kwargs is None:
-            kwargs = {}
-
-        return taskFunc, args, kwargs
+    funcPath: str
+    args: list
+    kwargs: dict
 
 
 @dataclass_json
@@ -191,32 +170,63 @@ class TaskConfig:
 class TaskData:
     name: str
 
-    taskSn: int | None = None
+    funcPath: str
+    argsStr: str
+    kwargsStr: str
+
+    execTimeLimit: int
+
+    taskSn: int = None
     priority: int = None
-
-    configJson: str = None
-
     blockKey: str | None = None
-    executeTimeLimit: int | None = None
 
     note: str | None = None
-    tag: tuple[str, ...] = ()
+    tag: str | None = None
 
     @classmethod
-    def createWithTaskConfig(
-            cls, name: str, taskConfig: TaskConfig, taskSn: int = None,
-            blockKey: int = None, timeLimit: int = None,
-            note: str = None, tags: tuple[str, ...] = ()
+    def pack(
+            cls, *_, name: str, func: Callable, args: tuple | list = None, kwargs: dict = None,
+            blockKey: int = None, execTimeLimit: int = None, priority: int = None,
+            note: str = None, tag: str = None,
     ) -> TaskData:
+        assert isfunction(func), '无效的 func'
+        funcPath = f'{getmodule(func).__name__}.{func.__name__}'
+
+        argsStr = '[]'
+        if args:
+            argsStr = CONFIG.handler.serialize(args)
+
+        kwargsStr = '{}'
+        if kwargs:
+            kwargsStr = CONFIG.handler.serialize(kwargs)
+
+        if execTimeLimit is None:
+            execTimeLimit = CONFIG.execTimeLimit
+
         return cls(
-            name=name,
-            configJson=taskConfig.to_json(),
-            blockKey=blockKey, executeTimeLimit=timeLimit,
-            note=note, tag=tags,
+            name=name, funcPath=funcPath, argsStr=argsStr, kwargsStr=kwargsStr,
+            blockKey=blockKey, execTimeLimit=execTimeLimit,
+            note=note, tag=tag,
         )
 
-    def getTaskConfig(self) -> TaskConfig:
-        return TaskConfig.from_json(self.configJson)
+    def exportToSaveModel(self) -> dict:
+        dataDict = self.to_dict()
+        emptyKey = []
+        for key, value in list(dataDict.items()):
+            if value is None:
+                dataDict.pop(key)
+
+        return dataDict
+
+    def exportToWorker(self) -> str:
+        dataDict: WorkerTaskData = dict(
+            taskSn=self.taskSn,
+            funcPath=self.funcPath,
+            args=json.loads(self.argsStr),
+            kwargs=json.loads(self.kwargsStr),
+            execTimeLimit=self.execTimeLimit,
+        )
+        return CONFIG.handler.serialize(dataDict)
 
 
 TaskDataArrayType: TypeAlias = list[TaskData, ...] | tuple[TaskData, ...]
@@ -231,11 +241,11 @@ class TaskState:
     done: bool = False
 
     def __post_init__(self):
-        assert self.taskData.taskSn is not None, '没有 taskSn 的任务无法加载'
+        assert self.taskData.taskSn, '没有 taskSn 的任务无法加载'
         assert self.taskData.priority is not None, '没有 priority 的任务无法加载'
 
-    def getTaskDataStr(self) -> str:
-        return self.taskData.to_json()
+    def exportToWorker(self) -> str:
+        return self.taskData.exportToWorker()
 
     @property
     def priority(self) -> int:
@@ -268,11 +278,3 @@ def remoteProxyCall(func: Callable, *args, retry=5, **kwargs):
 _ = (
     Iterator, Iterable, warn, catch_warnings,
 )
-
-# __all__ = (
-#     'currentTimeStr', 'getNowStamp', 'timeStampToString',
-#     'CONFIG', 'ReadonlyDict',
-#     'importComponent', 'importFunction',
-#     'WorkerProcessConfig', 'TaskState',
-#     'remoteProxyCall', 'ProxyTimeout',
-# )

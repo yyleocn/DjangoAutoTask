@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import time
 import signal
 import traceback
@@ -9,7 +10,7 @@ from multiprocessing import current_process, Event
 from . import Public
 
 if Public.TYPE_CHECKING:
-    from .Public import WorkerProcessConfig, TaskData, TaskConfig
+    from .Public import (WorkerProcessConfig, TaskData, WorkerTaskData, )
 
 
 def workerFunc(workerConfig: WorkerProcessConfig, *args, **kwargs):
@@ -68,23 +69,31 @@ def workerFunc(workerConfig: WorkerProcessConfig, *args, **kwargs):
             if getResult == -1:
                 break  # 0 表示管理器进入关闭状态，退出循环
 
-            taskData: TaskData = Public.TaskData.from_json(getResult)
-            taskConfig: TaskConfig = taskData.getTaskConfig()
-
             # -------------------- config check & unpack --------------------
-            print(f'{workerName} >>> 已拉取任务 {taskData.taskSn}')
+
             try:
-                taskFunc, taskArgs, taskKwargs = taskConfig.unpack()  # 解析 taskInfo 的数据
+                taskData: WorkerTaskData = Public.CONFIG.handler.deserialize(getResult)  # 解析 taskData 的数据
+                taskSn = taskData['taskSn']
+                execTimeLimit = taskData['execTimeLimit']
+                funcPath = taskData['funcPath']
+
+                taskFunc = Public.importFunction(funcPath)
+
+                taskArgs = taskData['args']
+                taskKwargs = taskData['kwargs']
             except:
-                print(f'{workerName} >>> 任务 {taskData.taskSn} 配置无效')
+                print(f'{workerName} >>> 任务配置无效')
                 Public.remoteProxyCall(
                     workerConfig.dispatcherClient.invalidConfig,
-                    taskSn=taskData.taskSn, detail=traceback.format_exc(),
+                    workerName=f'{workerConfig.localName}-{workerName}',
+                    detail=traceback.format_exc(),
                 )  # 发送 invalidConfig 错误
                 continue
 
+            print(f'{workerName} >>> 已拉取任务 {taskSn}')
+
             # -------------------- send time limit --------------------
-            workerConfig.pipe.send(('timeLimit', taskData.executeTimeLimit))
+            workerConfig.pipe.send(('timeLimit', execTimeLimit))
 
             # -------------------- executor task --------------------
             execWarn: str | None = None
@@ -94,7 +103,7 @@ def workerFunc(workerConfig: WorkerProcessConfig, *args, **kwargs):
                 try:
                     result = taskFunc(*taskArgs, **taskKwargs)
                 except Exception as exception_:  # 捕获 exception
-                    print(f'{workerName} >>> 任务 {taskData.taskSn} 运行错误: {exception_}')
+                    print(f'{workerName} >>> 任务 {taskSn} 运行错误: {exception_}')
                     exception = exception_
                     crashDetail = traceback.format_exc()
                 if warnArr:
@@ -106,18 +115,18 @@ def workerFunc(workerConfig: WorkerProcessConfig, *args, **kwargs):
                 # -------------------- after crash --------------------
                 Public.remoteProxyCall(
                     workerConfig.dispatcherClient.taskCrash,
-                    taskSn=taskData.taskSn,
+                    taskSn=taskSn,
                     message=str(exception),
                     detail=crashDetail,
                     execWarn=execWarn,
                 )  # 发送 taskCrash 错误
                 continue
 
-            print(f'{workerName} >>> {taskData.taskSn} 运行完毕')
+            print(f'{workerName} >>> {taskSn} 运行完毕')
 
             Public.remoteProxyCall(
                 workerConfig.dispatcherClient.taskSuccess,  # 发送 taskSuccess
-                taskSn=taskData.taskSn,
+                taskSn=taskSn,
                 result=result,
                 execWarn=execWarn,
             )

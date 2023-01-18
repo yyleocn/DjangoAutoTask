@@ -11,8 +11,16 @@ from django.db.models.signals import pre_delete
 from . import Public
 
 
-def getTaskTimeLimit():
-    return 100
+def defaultExecTimeLimit() -> int:
+    return Public.CONFIG.execTimeLimit
+
+
+def defaultRetryDelay() -> int:
+    return Public.CONFIG.retryDelay
+
+
+def defaultExecLimit() -> int:
+    return Public.CONFIG.execLimit
 
 
 def getNowTimeStamp() -> int:
@@ -42,9 +50,9 @@ class TaskFieldPublic(models.Model):
 
     planTime = models.BigIntegerField(default=0)  # 计划时间，默认为 0 表示立即执行
 
-    executeTimeLimit = models.SmallIntegerField(null=True, default=None)  # 运行时限
-    retryDelay = models.SmallIntegerField(default=30, )  # 重试延迟
-    retryLimit = models.SmallIntegerField(default=0, )  # 重试次数限制g
+    execTimeLimit = models.SmallIntegerField(null=False, default=defaultExecTimeLimit)  # 运行时限
+    retryDelay = models.SmallIntegerField(null=False, default=defaultRetryDelay)  # 重试延迟
+    execLimit = models.SmallIntegerField(null=False, default=defaultExecLimit)  # 重试次数限制g
 
     # -------------------- priority --------------------
 
@@ -60,7 +68,12 @@ class TaskFieldPublic(models.Model):
     cancel = models.BooleanField(default=False)  # 取消
 
     # -------------------- task config --------------------
-    configJson = models.TextField(null=False, blank=False)  # TaskConfig 的 json 数据，包含 func / args / kwargs 三部分
+    funcPath = models.TextField(null=False, blank=False)
+    argsStr = models.TextField(null=True, blank=True, default=None)
+    kwargsStr = models.TextField(null=True, blank=True, default=None)
+
+    # configJson = models.TextField(null=False, blank=False)  # TaskConfig 的 json 数据，包含 func / args / kwargs 三部分
+
     blockKey = models.CharField(max_length=20, blank=False, null=True, default=None)  # block key
 
     class Meta:
@@ -92,9 +105,9 @@ class TaskPackage(TaskFieldPublic):
     configJson = None
     blockKey = None
 
-    executeTimeLimit = None
+    execTimeLimit = None
     retryDelay = None
-    retryLimit = None
+    execLimit = None
 
 
 #     #######                    #         #####            #
@@ -168,13 +181,16 @@ class TaskScheme(TaskFieldPublic):
 
             planTime=self.planTime,
             priority=TaskRec.PriorityChoice.scheme,
-            executeTimeLimit=self.executeTimeLimit,
+            executeTimeLimit=self.execTimeLimit,
 
-            config=self.configJson,
+            # config=self.configJson,
+            funcPath=self.funcPath,
+            argsStr=self.argsStr,
+            kwargsStr=self.kwargsStr,
 
-            timeLimit=self.executeTimeLimit,
+            timeLimit=self.execTimeLimit,
             delay=self.retryDelay,
-            retry=self.retryLimit,
+            retry=self.execLimit,
         )
         nextTask.save()
         return nextTask
@@ -299,7 +315,11 @@ class TaskRec(TaskFieldPublic):
 
         return taskQuery
 
-    taskDataValueFields = ('name', 'taskSn', 'configJson', 'blockKey', 'executeTimeLimit', 'priority',)
+    taskDataValueFields = (
+        'name', 'taskSn',
+        'funcPath', 'argsStr', 'kwargsStr',
+        'blockKey', 'execTimeLimit', 'priority',
+    )
 
     @classmethod
     def exportTaskData(cls, querySet: QuerySet[TaskRec]) -> tuple[TaskData, ...]:
@@ -324,10 +344,6 @@ class TaskRec(TaskFieldPublic):
         self.taskStateTime = getNowTimeStamp()
         self.save()
 
-    @staticmethod
-    def getTaskTimeLimit() -> int:
-        return Public.CONFIG.taskTimeLimit
-
     def setRunning(self, workerName: str) -> int:
         if self.previousTask is not None:
             if self.previousTask.taskState < self.TaskStateChoice.success:
@@ -340,10 +356,7 @@ class TaskRec(TaskFieldPublic):
         self.workerName = workerName[:30]
 
         self.startTime = getNowTimeStamp()
-        if isinstance(self.executeTimeLimit, int):
-            self.timeout = self.startTime + self.executeTimeLimit
-        else:
-            self.timeout = self.startTime + self.getTaskTimeLimit()
+        self.timeout = self.startTime + self.execTimeLimit
 
         self.updateState(self.TaskStateChoice.running)
 
@@ -373,7 +386,7 @@ class TaskRec(TaskFieldPublic):
             self.updateState(self.TaskStateChoice.fail)
             return True
 
-        if self.execute >= self.retryLimit:
+        if self.execute >= self.execLimit:
             self.updateState(self.TaskStateChoice.fail)
             return True
 
