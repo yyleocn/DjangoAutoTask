@@ -11,12 +11,16 @@ from django.db.models.signals import pre_delete
 from . import Public
 
 
-def getTaskTimeLimit() -> int:
-    return Public.CONFIG.taskTimeLimit
+def getTaskTimeLimit():
+    return 100
 
 
 def getNowTimeStamp() -> int:
     return int(time.time())
+
+
+if Public.TYPE_CHECKING:
+    from .Public import TaskData
 
 
 #     ######            #          ##        #
@@ -33,21 +37,22 @@ class TaskFieldPublic(models.Model):
     createUser = models.CharField(max_length=20, null=False, blank=False, )
 
     name = models.CharField(max_length=50, null=False, blank=False, )  # 作业名称
-    tag = models.JSONField(max_length=50, null=True, )  # 标签
+    note = models.CharField(max_length=50, null=True, blank=False, default=None, )  # 注释
+    tag = models.CharField(max_length=50, null=True, )  # 标签
 
     planTime = models.BigIntegerField(default=0)  # 计划时间，默认为 0 表示立即执行
 
-    executeTimeLimit = models.SmallIntegerField(default=getTaskTimeLimit)  # 运行时限
+    executeTimeLimit = models.SmallIntegerField(null=True, default=None)  # 运行时限
     retryDelay = models.SmallIntegerField(default=30, )  # 重试延迟
-    retryLimit = models.SmallIntegerField(default=0, )  # 重试次数限制
+    retryLimit = models.SmallIntegerField(default=0, )  # 重试次数限制g
 
     # -------------------- priority --------------------
 
     class PriorityChoice(models.IntegerChoices):
         max = 10
-        scheme = 50
-        normal = 100
-        idle = 200
+        scheme = 20
+        normal = 50
+        idle = 100
 
     priority = models.SmallIntegerField(choices=PriorityChoice.choices, default=PriorityChoice.normal, )  # 优先级
 
@@ -55,8 +60,8 @@ class TaskFieldPublic(models.Model):
     cancel = models.BooleanField(default=False)  # 取消
 
     # -------------------- task config --------------------
-    config = models.TextField(null=False, blank=False)  # TaskConfig 的 json 数据，包含 func / args / kwargs 三部分
-    combine = models.BigIntegerField(null=True)  # combine key
+    configJson = models.TextField(null=False, blank=False)  # TaskConfig 的 json 数据，包含 func / args / kwargs 三部分
+    blockKey = models.CharField(max_length=20, blank=False, null=True, default=None)  # block key
 
     class Meta:
         abstract = True
@@ -84,11 +89,8 @@ class TaskPackage(TaskFieldPublic):
     def refreshStatus(self):
         queryRes = TaskRec.objects.filter(taskPackage_id=self.taskPackageSn).values('taskState')
 
-    func = None
-    args = None
-    kwargs = None
-    combine = None
-    result = None
+    configJson = None
+    blockKey = None
 
     executeTimeLimit = None
     retryDelay = None
@@ -117,7 +119,6 @@ class TaskScheme(TaskFieldPublic):
     retainTime = models.PositiveIntegerField(null=False, default=86400 * 7)  # 任务保留时间
 
     priority = None
-    result = None
 
     message = models.CharField(max_length=30, null=True, blank=True)
 
@@ -169,7 +170,7 @@ class TaskScheme(TaskFieldPublic):
             priority=TaskRec.PriorityChoice.scheme,
             executeTimeLimit=self.executeTimeLimit,
 
-            config=self.config,
+            config=self.configJson,
 
             timeLimit=self.executeTimeLimit,
             delay=self.retryDelay,
@@ -189,9 +190,6 @@ class TaskScheme(TaskFieldPublic):
 
 class TaskRec(TaskFieldPublic):
     class Meta:
-        # indexes = (
-        #     'taskSn',
-        # )
         index_together = (
             'taskSn', 'priority', 'previousTask',
             'planTime', 'retryTime',
@@ -228,15 +226,15 @@ class TaskRec(TaskFieldPublic):
     )
 
     class ErrorCodeChoice(models.IntegerChoices):
-        crash = 100001
-        timeout = 200001
-        invalidConfig = 300001
+        crash = 1001
+        timeout = 2001
+        invalidConfig = 3001
 
     result = models.TextField(null=True, blank=False, default=None, )  # return value
     detail = models.TextField(null=True, blank=False, default=None, )  # 记录 error / cancel 的详细信息
     execWarn = models.TextField(null=True, blank=False, default=None, )
 
-    errorCode = models.SmallIntegerField(null=True, choices=ErrorCodeChoice.choices, )  # 错误代码
+    errorCode = models.IntegerField(null=True, choices=ErrorCodeChoice.choices, )  # 错误代码
     errorMessage = models.CharField(max_length=20, null=True, blank=False, )  # 错误信息
 
     # -------------------- time stamp --------------------
@@ -301,6 +299,16 @@ class TaskRec(TaskFieldPublic):
 
         return taskQuery
 
+    taskDataValueFields = ('name', 'taskSn', 'configJson', 'blockKey', 'executeTimeLimit', 'priority',)
+
+    @classmethod
+    def exportTaskData(cls, querySet: QuerySet[TaskRec]) -> tuple[TaskData, ...]:
+        taskRecValueArr = querySet.values(*cls.taskDataValueFields)
+        return tuple(
+            Public.TaskData(**taskRecValue)
+            for taskRecValue in taskRecValueArr
+        )
+
     @classmethod
     def overtimeTask(cls, ) -> QuerySet[TaskRec]:
         currentTime = getNowTimeStamp()
@@ -316,6 +324,10 @@ class TaskRec(TaskFieldPublic):
         self.taskStateTime = getNowTimeStamp()
         self.save()
 
+    @staticmethod
+    def getTaskTimeLimit() -> int:
+        return Public.CONFIG.taskTimeLimit
+
     def setRunning(self, workerName: str) -> int:
         if self.previousTask is not None:
             if self.previousTask.taskState < self.TaskStateChoice.success:
@@ -328,7 +340,10 @@ class TaskRec(TaskFieldPublic):
         self.workerName = workerName[:30]
 
         self.startTime = getNowTimeStamp()
-        self.timeout = self.startTime + self.executeTimeLimit
+        if isinstance(self.executeTimeLimit, int):
+            self.timeout = self.startTime + self.executeTimeLimit
+        else:
+            self.timeout = self.startTime + self.getTaskTimeLimit()
 
         self.updateState(self.TaskStateChoice.running)
 

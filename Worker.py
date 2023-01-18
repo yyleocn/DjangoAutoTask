@@ -9,7 +9,7 @@ from multiprocessing import current_process, Event
 from . import Public
 
 if Public.TYPE_CHECKING:
-    from .Public import WorkerProcessConfig, TaskInfo
+    from .Public import WorkerProcessConfig, TaskData, TaskConfig
 
 
 def workerFunc(workerConfig: WorkerProcessConfig, *args, **kwargs):
@@ -18,13 +18,13 @@ def workerFunc(workerConfig: WorkerProcessConfig, *args, **kwargs):
     workerStopEvent = Event()
     workerStopEvent.clear()
 
-    processID = f'{workerConfig.sn:02d} - {pid:<5d}'
+    workerName = f'{Public.CONFIG.name}-worker-{workerConfig.sn:02d}-{pid:<5d}'
     workerConfig.dispatcherClient.methodBound()
 
-    print(f'* Worker {processID} start @ {Public.currentTimeStr()}')
+    print(f'* {workerName} start @ {Public.currentTimeStr()}')
 
     def stopSignalHandler(*_, ):
-        print(f'Worker {processID} receive stop signal @ {Public.currentTimeStr()}')
+        print(f'{workerName} receive stop signal @ {Public.currentTimeStr()}')
         workerStopEvent.set()
 
     for sig in (signal.SIGINT, signal.SIGTERM, signal.SIGILL,):
@@ -34,15 +34,15 @@ def workerFunc(workerConfig: WorkerProcessConfig, *args, **kwargs):
 
     while True:
         # -------------------- exit event check --------------------
-        if workerConfig.shutdownEvent.is_set() or workerStopEvent.is_set():
-            print(f'Worker {processID} exit @ {Public.currentTimeStr()}')
+        if workerConfig.clusterOffline.is_set() or workerStopEvent.is_set():
+            print(f'{workerName} >>> 进程关闭 {Public.currentTimeStr()}')
             exit()
 
         currentTime = time.time()
 
         # -------------------- work process life time --------------------
         if currentTime - initTime > Public.CONFIG.workerLifetime:
-            print(f'Worker {processID} life end, exit for next')
+            print(f'{workerName} >>> 到达时限，等待重启')
             exit()
 
         # -------------------- heart beat --------------------
@@ -50,38 +50,41 @@ def workerFunc(workerConfig: WorkerProcessConfig, *args, **kwargs):
 
         try:
             # -------------------- get task config --------------------
-            taskConfig: TaskInfo | int = Public.remoteProxyCall(
+            getResult: str | int = Public.remoteProxyCall(
                 func=workerConfig.dispatcherClient.getTask,
-                workerName=f'{workerConfig.localName}-{processID}',
-            )  # 从 dispatcher 获取 taskConfig
+                workerName=f'{workerConfig.localName}-{workerName}',
+            )  # 从 dispatcher 获取 taskInfo
 
             # -------------------- refresh dispatcher check time --------------------
             dispatcherCheckTime = currentTime
 
-            if taskConfig == 1:
+            if getResult == 1:
                 time.sleep(0.5)  # -1 表示忙碌状态，暂停 0.5 秒
                 continue
-            if taskConfig == 0:
-                print('Task queue is empty, waiting.')
+            if getResult == 0:
+                print(f'{workerName} >>> 队列为空，等待中')
                 time.sleep(5)  # 1 表示目前没有任务，暂停 5 秒
                 continue
-            if taskConfig == -1:
+            if getResult == -1:
                 break  # 0 表示管理器进入关闭状态，退出循环
 
+            taskData: TaskData = Public.TaskData.from_json(getResult)
+            taskConfig: TaskConfig = taskData.getTaskConfig()
+
             # -------------------- config check & unpack --------------------
-            print(f'Process {processID} get task {taskConfig.sn}')
+            print(f'{workerName} >>> 已拉取任务 {taskData.taskSn}')
             try:
-                taskFunc, taskArgs, taskKwargs = taskConfig.unpack()  # 解析 taskConfig 的数据
+                taskFunc, taskArgs, taskKwargs = taskConfig.unpack()  # 解析 taskInfo 的数据
             except:
-                print(f'  Task  {taskConfig.sn} config invalid')
+                print(f'{workerName} >>> 任务 {taskData.taskSn} 配置无效')
                 Public.remoteProxyCall(
                     workerConfig.dispatcherClient.invalidConfig,
-                    taskSn=taskConfig.sn, detail=traceback.format_exc(),
+                    taskSn=taskData.taskSn, detail=traceback.format_exc(),
                 )  # 发送 invalidConfig 错误
                 continue
 
             # -------------------- send time limit --------------------
-            workerConfig.pipe.send(('timeLimit', taskConfig.timeLimit))
+            workerConfig.pipe.send(('timeLimit', taskData.executeTimeLimit))
 
             # -------------------- executor task --------------------
             execWarn: str | None = None
@@ -91,7 +94,7 @@ def workerFunc(workerConfig: WorkerProcessConfig, *args, **kwargs):
                 try:
                     result = taskFunc(*taskArgs, **taskKwargs)
                 except Exception as exception_:  # 捕获 exception
-                    print(f'  Task {taskConfig.sn} crash: {exception_}')
+                    print(f'{workerName} >>> 任务 {taskData.taskSn} 运行错误: {exception_}')
                     exception = exception_
                     crashDetail = traceback.format_exc()
                 if warnArr:
@@ -103,33 +106,33 @@ def workerFunc(workerConfig: WorkerProcessConfig, *args, **kwargs):
                 # -------------------- after crash --------------------
                 Public.remoteProxyCall(
                     workerConfig.dispatcherClient.taskCrash,
-                    taskSn=taskConfig.sn,
+                    taskSn=taskData.taskSn,
                     message=str(exception),
                     detail=crashDetail,
                     execWarn=execWarn,
                 )  # 发送 taskCrash 错误
                 continue
 
-            print(f'  Task {taskConfig.sn} success')
+            print(f'{workerName} >>> {taskData.taskSn} 运行完毕')
 
             Public.remoteProxyCall(
                 workerConfig.dispatcherClient.taskSuccess,  # 发送 taskSuccess
-                taskSn=taskConfig.sn,
+                taskSn=taskData.taskSn,
                 result=result,
                 execWarn=execWarn,
             )
 
             # -------------------- 捕获 TimeoutException --------------------
         except Public.ProxyTimeout as exception_:
-            print(f'Task dispatcher timeout @ worker {processID}')
+            print(f'{workerName} >>> dispatcher 连接失败')
 
             if currentTime - dispatcherCheckTime < Public.CONFIG.dispatcherTimeout:
                 # 没有超时等待 5 秒继续
                 time.sleep(5)
             else:
                 # 超时后 worker 退出
-                print(f'Task dispatcher timeout, worker {processID} exit')
+                print(f'{workerName} >>> dispatcher 连接超时，进程退出')
                 exit()
 
         except Exception as exception_:
-            print(f'* Worker {processID} crash @ {Public.currentTimeStr()} : {exception_}')
+            print(f'* {workerName} 运行错误 @ {Public.currentTimeStr()} : {exception_}')

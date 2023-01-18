@@ -3,19 +3,25 @@ from __future__ import annotations
 import time
 
 from pydoc import safeimport
-from dataclasses import dataclass
+
+from inspect import getmodule
+
 from typing import (TYPE_CHECKING, Callable, Iterator, TypeAlias, Iterable, )
+from types import (FunctionType, )
 
 from multiprocessing import Event
 from multiprocessing.connection import Connection
 
-from django.conf import settings
+import dataclasses
 from dataclasses_json import dataclass_json
+
+from django.conf import settings
 
 from warnings import warn, catch_warnings
 
 if TYPE_CHECKING:
     from .Dispatcher import DispatcherClient
+    from .Handler import AutoTaskHandler
 
 
 def getNowStamp() -> int:
@@ -60,14 +66,14 @@ def importComponent(path: str, *_, forceLoad: bool = False, cache: dict | None =
     return getattr(importModule, '.'.join(pathParts[n:]))
 
 
-def importFunction(path: str, *_, forceLoad: bool = False, cache: dict | None = None) -> Callable:
+def importFunction(path: str, *_, forceLoad: bool = False, cache: dict | None = None) -> FunctionType:
     func = importComponent(
         path=path,
         forceLoad=forceLoad,
         cache=cache,
     )
 
-    if not isinstance(func, Callable):
+    if not isinstance(func, FunctionType):
         raise Exception(f'{path} is not a function')
 
     return func
@@ -77,7 +83,7 @@ def importFunction(path: str, *_, forceLoad: bool = False, cache: dict | None = 
 autoTaskConfig = getattr(settings, 'AUTO_TASK', dict())
 
 
-@dataclass(frozen=True)
+@dataclasses.dataclass(frozen=True)
 class AutoTaskConfig:
     # dispatcher
     authKey: bytes
@@ -98,7 +104,7 @@ class AutoTaskConfig:
     taskRetryDelay: int = 30
     taskRetryCount: int = 5
 
-    __handler = None
+    # handler: AutoTaskHandler = None
 
     def __getattr__(self, key):
         if key == 'handler':
@@ -140,97 +146,104 @@ class ReadonlyDict(dict):
 
 
 # -------------------- template --------------------
-@dataclass(frozen=True)
+@dataclasses.dataclass(frozen=True)
 class WorkerProcessConfig:
+    localName: str
     sn: int
     dispatcherClient: DispatcherClient
-    shutdownEvent: Event
+    clusterOffline: Event
     pipe: Connection
-    localName: str
 
 
 @dataclass_json
-@dataclass(frozen=True)
+@dataclasses.dataclass(frozen=True)
 class TaskConfig:
-    func: str
-    args: str | None = None
-    kwargs: str | None = None
+    funcPath: str = None
+    args: tuple | list | None = None
+    kwargs: dict | None = None
+
+    @classmethod
+    def pack(cls, func: Callable, args: tuple | list = None, kwargs: dict = None):
+        funcPath = f'{getmodule(func).__name__}.{func.__name__}'
+        return cls(
+            funcPath=funcPath,
+            args=args,
+            kwargs=kwargs,
+        )
+
+    # -------------------- unpack --------------------
+    def unpack(self) -> tuple[Callable, list, dict]:
+        taskFunc = importFunction(self.funcPath)
+        assert isinstance(taskFunc, FunctionType), 'TaskConfig 内 func 无效'
+        args: list = self.args
+        if args is None:
+            args = []
+
+        kwargs: dict = self.kwargs
+        if kwargs is None:
+            kwargs = {}
+
+        return taskFunc, args, kwargs
 
 
-TaskConfigArrayType: TypeAlias = list[TaskConfig, ...] | tuple[TaskConfig, ...]
-
-
-@dataclass(frozen=True)
+@dataclass_json
+@dataclasses.dataclass(frozen=True)
 class TaskData:
     name: str
 
-    taskConfig: TaskConfig
+    taskSn: int | None = None
+    priority: int = None
 
-    combine: int | None = None
-    timeLimit: int | None = None
+    configJson: str = None
+
+    blockKey: str | None = None
+    executeTimeLimit: int | None = None
 
     note: str | None = None
-    tags: tuple[str, ...] = ()
+    tag: tuple[str, ...] = ()
+
+    @classmethod
+    def createWithTaskConfig(
+            cls, name: str, taskConfig: TaskConfig, taskSn: int = None,
+            blockKey: int = None, timeLimit: int = None,
+            note: str = None, tags: tuple[str, ...] = ()
+    ) -> TaskData:
+        return cls(
+            name=name,
+            configJson=taskConfig.to_json(),
+            blockKey=blockKey, executeTimeLimit=timeLimit,
+            note=note, tag=tags,
+        )
+
+    def getTaskConfig(self) -> TaskConfig:
+        return TaskConfig.from_json(self.configJson)
 
 
 TaskDataArrayType: TypeAlias = list[TaskData, ...] | tuple[TaskData, ...]
 
 
-@dataclass(frozen=True)
-class TaskInfo:
-    sn: int
-    taskConfig: TaskConfig
-
-    combine: int | None = None
-    timeLimit: int | None = None
-
-    # -------------------- unpack --------------------
-    def unpack(self) -> tuple[Callable, list, dict]:
-        try:
-            func: Callable = importFunction(self.taskConfig.func)
-        except:
-            raise Exception('Invalid task function')
-        if not callable(func):
-            raise Exception('Invalid task function')
-
-        args: list
-        try:
-            if self.taskConfig.args:
-                args = CONFIG.handler.deserialize(self.taskConfig.args)
-            else:
-                args = []
-        except:
-            raise Exception('Invalid task args')
-        if not isinstance(args, list):
-            raise Exception('Invalid task args')
-
-        kwargs: dict
-        try:
-            if self.taskConfig.kwargs:
-                kwargs = CONFIG.handler.deserialize(self.taskConfig.kwargs)
-            else:
-                kwargs = {}
-        except:
-            raise Exception('Invalid task kwargs')
-        if not isinstance(kwargs, dict):
-            raise Exception('Invalid task kwargs')
-
-        return func, args, kwargs
-
-
-TaskInfoArrayType: TypeAlias = list[TaskInfo, ...] | tuple[TaskInfo, ...]
-
-
-@dataclass
+@dataclasses.dataclass
 class TaskState:
-    taskSn: int
-    priority: int
-    config: TaskInfo
+    taskData: TaskData
 
-    combine: int = None
-    timeout: int = None
+    endTime: int = None
     workerName: str = None
     done: bool = False
+
+    def __post_init__(self):
+        assert self.taskData.taskSn is not None, '没有 taskSn 的任务无法加载'
+        assert self.taskData.priority is not None, '没有 priority 的任务无法加载'
+
+    def getTaskDataStr(self) -> str:
+        return self.taskData.to_json()
+
+    @property
+    def priority(self) -> int:
+        return self.taskData.priority
+
+    @property
+    def taskSn(self) -> int:
+        return self.taskData.taskSn
 
 
 TaskStateArrayType: TypeAlias = list[TaskState, ...] | tuple[TaskState, ...]
@@ -255,10 +268,11 @@ def remoteProxyCall(func: Callable, *args, retry=5, **kwargs):
 _ = (
     Iterator, Iterable, warn, catch_warnings,
 )
-__all__ = (
-    'currentTimeStr', 'getNowStamp', 'timeStampToString',
-    'CONFIG', 'TaskInfo', 'ReadonlyDict',
-    'importComponent', 'importFunction',
-    'WorkerProcessConfig', 'TaskInfo', 'TaskState',
-    'remoteProxyCall', 'ProxyTimeout',
-)
+
+# __all__ = (
+#     'currentTimeStr', 'getNowStamp', 'timeStampToString',
+#     'CONFIG', 'ReadonlyDict',
+#     'importComponent', 'importFunction',
+#     'WorkerProcessConfig', 'TaskState',
+#     'remoteProxyCall', 'ProxyTimeout',
+# )

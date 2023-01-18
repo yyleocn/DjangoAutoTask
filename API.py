@@ -1,3 +1,4 @@
+from __future__ import annotations
 from . import Public
 
 from .models import TaskRec, TaskScheme, TaskPackage
@@ -17,7 +18,7 @@ if Public.TYPE_CHECKING:
 def createTask(taskData: TaskData):
     taskRec = TaskRec(
         name=taskData.name,
-        config=taskData.taskConfig.to_json(),
+        configJson=taskData.configJson,
     )
     taskRec.save()
 
@@ -32,12 +33,11 @@ def createTask(taskData: TaskData):
 
 def createTaskChain(taskDataArr: Iterable[TaskData, ...]):
     previousTask = None
-    taskData: TaskData
-    for index, taskData in enumerate(taskDataArr):
+    for taskData in taskDataArr:
         taskRec = TaskRec(
             name=taskData.name,
-            config=taskData.taskConfig.to_json(),
-            prevTask=previousTask,
+            configJson=taskData.configJson,
+            previousTask=previousTask,
             note=taskData.note,
         )
         taskRec.save()

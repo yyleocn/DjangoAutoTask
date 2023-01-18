@@ -31,19 +31,13 @@ class AutoTaskHandler:
 
     # -------------------- TaskRec --------------------
     @classmethod
-    def getTaskQueue(cls, *_, taskType: int | None = None, limit: int | None = None) -> list[TaskState]:
-
-        queryRes = TaskRec.getTaskQueue(taskType=taskType, size=limit).values(*TaskRec.ValueFields)
-        return [
-            Public.TaskState(
-                taskSn=taskRec['taskSn'], combine=taskRec['combine'], priority=taskRec['priority'],
-                config=Public.TaskInfo(
-                    sn=taskRec['taskSn'],
-                    timeLimit=taskRec['timeLimit'] or Public.CONFIG.taskTimeLimit,
-                    taskConfig=Public.TaskConfig.from_json(taskRec['config']),
-                ),
-            ) for taskRec in queryRes
-        ]
+    def getTaskQueue(cls, *_, taskType: int | None = None, limit: int | None = None) -> tuple[TaskState, ...]:
+        querySet = TaskRec.getTaskQueue(taskType=taskType, size=limit)
+        taskDataArr = TaskRec.exportTaskData(querySet)
+        return tuple(
+            Public.TaskState(taskData=taskData)
+            for taskData in taskDataArr
+        )
 
     @classmethod
     def setTaskRecSuccess(
@@ -92,13 +86,13 @@ class AutoTaskHandler:
         )
 
     @classmethod
-    def setTaskRunning(cls, *_, taskSn: int, workerName: str) -> int | None:
+    def setTaskRunning(cls, *_, taskSn: int, workerName: str) -> int:
         """
         根据 taskSn 设置 TaskRec 为 running 状态
         """
         taskRec = TaskRec.manageTaskRec(taskSn=taskSn)
         if taskRec is None:
-            return None
+            return 0
         return taskRec.setRunning(workerName=workerName, )
 
     @classmethod

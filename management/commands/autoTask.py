@@ -42,6 +42,7 @@ class Command(BaseCommand):
             address=(CONFIG.host, CONFIG.port),
             authkey=CONFIG.authKey,
         )
+        dispatcherClient.connect()
 
         workerCluster = WorkerCluster(
             dispatcherConn=dispatcherClient,
