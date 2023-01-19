@@ -20,7 +20,7 @@ class Command(BaseCommand):
         )
 
         def shutdownDispatcher(*args):
-            print(f'Task dispatcher close @ {currentTimeStr()}')
+            print(f'调度器关闭 @ {currentTimeStr()}')
             time.sleep(2)
             exit()
 
@@ -59,11 +59,11 @@ class Command(BaseCommand):
         time.sleep(1)
         dispatcherAdmin.connect()
 
-        print(f'Task dispatcher start @ {currentTimeStr()}')
+        print(f'调度器启动 @ {currentTimeStr()}')
 
         checkTime = 0
         while True:
-            if time.time() - checkTime > 10:
+            if time.time() - checkTime > 5:
                 isRunning = dispatcherAdmin.isRunning()._getvalue()
                 if isRunning:
                     AutoTaskHandler.taskSchemeAuto()
@@ -110,7 +110,7 @@ class Command(BaseCommand):
         for cluster in dispatcherStatus.get('cluster', []):
             print(f'''> {cluster.get('name'):>10}:{cluster.get('pid', [])}''')
 
-        print(f'''>--------------- running task --------------------------''')
+        print(f'''>--------------- 进行中任务 --------------------------''')
         for taskRec in dispatcherStatus.get('runningTask', []):
             print(f'''> {taskRec.get('taskSn')}:{taskRec.get('executor')}''')
 

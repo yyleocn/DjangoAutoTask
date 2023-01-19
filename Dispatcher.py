@@ -184,7 +184,7 @@ class TaskDispatcher:
                 workerName=selectTask.workerName,
             )
 
-            if selectTask.endTime is None:
+            if not selectTask.endTime:
                 self.removeTask(selectTask.taskData.taskSn)
                 continue
 
@@ -208,7 +208,7 @@ class TaskDispatcher:
         return True
 
     def taskSuccess(self, *_, taskSn: int = None, result: any = None, execWarn: str | None = None, ):
-        print(f'任务 {taskSn} 完成, result is {result}')
+        print(f'任务 {taskSn} 完成, 结果是 {result}')
         self.removeTask(taskSn)
         return self.__handler.setTaskRecSuccess(taskSn=taskSn, result=result, execWarn=execWarn, )
 
@@ -233,11 +233,11 @@ class TaskDispatcher:
             clusterName = state.get('name')
             clusterPid = state.get('pid')
             clusterStatus = state.get('status')
-            print(f'Cluster {clusterName} ping task dispatcher')
+            print(f'群集 {clusterName} ping 了一下')
             self.__clusterDict[clusterName] = state
 
         else:
-            print('Invalid ping message')
+            print('Ping 消息无效')
             return -99  # -99 表示错误信息
 
         return self.statusCode()  # 0 空闲

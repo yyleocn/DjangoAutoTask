@@ -39,9 +39,9 @@ class WorkerProcess:
     def __str__(self):
         pid = self.pid
         if pid:
-            return f'Worker-{self.__sn:02d}-{pid}'
+            return f'作业器-{self.__sn:02d}-{pid}'
 
-        return f'Worker-{self.__sn:02d}'
+        return f'作业器-{self.__sn:02d}'
 
     def refreshWorkerTimeLimit(self, timeLimit=None):
         if timeLimit is None:
@@ -52,7 +52,7 @@ class WorkerProcess:
 
     def createProcess(self):
         if parent_process():
-            print('子进程无法再建立 WorkerProcess')
+            print('只有主进程可以建立子进程')
             return
 
         while self.__pipe.poll():
@@ -132,11 +132,11 @@ class WorkerProcess:
 
 class WorkerCluster:
     def __init__(
-            self, *_, dispatcherConn: DispatcherClient = None, workerFunc: Callable,
+            self, *_, dispatcherConn: DispatcherClient, workerFunc: Callable,
             localName: str = Public.CONFIG.name, poolSize: int = Public.CONFIG.poolSize,
     ):
         if dispatcherConn is None:
-            raise Exception('Invalid task dispatcher')
+            raise Exception('需要调度器连接')
 
         self.__dispatcherConn: DispatcherClient = dispatcherConn
 
@@ -164,19 +164,27 @@ class WorkerCluster:
         )
 
         def shutdownHandler(*_):
-            print(f'{self} receive shutdown signal @ {Public.currentTimeStr()}')
-            self.__shutdown = True
-            self.offline()
+            print(f'{self} 接收到关闭信号 @ {Public.currentTimeStr()}')
+            for subProcess in self.__processPool:
+                if not subProcess:
+                    continue
+                if subProcess.isAlive():
+                    self.__shutdown = True
+                    self.offline()
+                    return
+
+            if self.__shutdown:
+                exit()
 
         for sig in (signal.SIGINT, signal.SIGTERM, signal.SIGILL,):
             signal.signal(sig, shutdownHandler)
 
         initTime = time.time()
 
-        print(f'{self} 启动, 子进程 {self.__poolSize} 个')
+        print(f'{self} >>> 初始化, 子进程 {self.__poolSize} 个')
 
     def __str__(self):
-        return f'{self.__localName}-cluster-{self.pid}'
+        return f'{self.__localName}-作业器-{self.pid}'
 
     def checkSubProcess(self):
         if self.__clusterOffline.is_set():
@@ -207,7 +215,7 @@ class WorkerCluster:
                 if self.__shutdown:
                     break
 
-                print(f'{self} 离线 @ {Public.currentTimeStr()}')
+                print(f'{self} >>> 离线 @ {Public.currentTimeStr()}')
                 time.sleep(5)
 
             if time.time() - dispatcherCheckTime > 10:
@@ -220,14 +228,14 @@ class WorkerCluster:
                         }
                     )._getvalue()  # Ping 连接 dispatcher
                 except Exception as err_:
-                    print(f'{self} >>> dispatcher 连接失败: {err_}')
+                    print(f'{self} >>> 调度器连接失败: {err_}')
                     time.sleep(5)
                     raise Exception from err_
 
                 if pingRes > 0:
                     dispatcherCheckTime = time.time()  # 正常状态更新调度器时间
                     if self.__clusterOffline.is_set():
-                        print(f'{self} 上线 @ {Public.currentTimeStr()}')
+                        print(f'{self} >>> 上线 @ {Public.currentTimeStr()}')
                         self.__clusterOffline.clear()
 
                 if pingRes < 0:
@@ -235,7 +243,7 @@ class WorkerCluster:
                         self.offline()
 
                     if pingRes < -10:  # 结果小于 -10 表示请求错误，
-                        print(f'{self} >>> dispatcher 通讯错误: {pingRes}')
+                        print(f'{self} >>> 调度器通讯错误: {pingRes}')
 
                 if pingRes == 0:
                     pass  # 空闲状态没有操作
@@ -245,8 +253,6 @@ class WorkerCluster:
 
             self.checkSubProcess()
             time.sleep(1)
-
-        exit()
 
     def offline(self):
         if self.__clusterOffline.is_set():
@@ -269,7 +275,7 @@ class WorkerCluster:
                 print(f'{self} >>> 已下线')
                 return None
 
-            time.sleep(0.5)
+            time.sleep(1)
 
 
 __all__ = (

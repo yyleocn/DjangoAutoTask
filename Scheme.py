@@ -1,4 +1,4 @@
-from AutoTask.models import TaskScheme
+from DjangoAutoTask.models import TaskScheme
 
 
 def TaskSchemeAuto():

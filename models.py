@@ -57,16 +57,7 @@ class TaskFieldPublic(models.Model):
     execLimit = models.SmallIntegerField(null=False, default=defaultExecLimit)  # 重试次数限制g
 
     # -------------------- priority --------------------
-
-    class PriorityChoice(models.IntegerChoices):
-        max = 10
-        scheme = 20
-        levelA = 30
-        levelB = 40
-        normal = 50
-        idle = 100
-
-    priority = models.SmallIntegerField(choices=PriorityChoice.choices, default=PriorityChoice.normal, )  # 优先级
+    priority = models.SmallIntegerField(default=1000)  # 优先级, 默认 1000 ，计划任务 500 ，
 
     pause = models.BooleanField(default=False)  # 暂停
     cancel = models.BooleanField(default=False)  # 取消
@@ -135,6 +126,7 @@ class TaskScheme(TaskFieldPublic):
 
     retainTime = models.PositiveIntegerField(null=False, default=86400 * 7)  # 任务保留时间
 
+    name = models.CharField(max_length=50, null=False, blank=False, unique=True, )  # 计划名称不重复
     priority = None
 
     message = models.CharField(max_length=30, null=True, blank=True, default=None)
@@ -199,7 +191,7 @@ class TaskScheme(TaskFieldPublic):
             taskSchemeSn=self.taskSchemeSn,
 
             planTime=self.planTime,
-            priority=TaskRec.PriorityChoice.scheme,
+            priority=500,
 
             # config=self.configJson,
             funcPath=self.funcPath,
@@ -268,7 +260,7 @@ class TaskRec(TaskFieldPublic):
     detail = models.TextField(null=True, blank=False, default=None, )  # 记录 error / cancel 的详细信息
     execWarn = models.TextField(null=True, blank=False, default=None, )
 
-    errorCode = models.IntegerField(null=True, choices=ErrorCodeChoice.choices, )  # 错误代码
+    errorCode = models.SmallIntegerField(null=True, choices=ErrorCodeChoice.choices, )  # 错误代码
     errorMessage = models.TextField(null=True, blank=False, default=None)  # 错误信息
 
     # -------------------- time stamp --------------------
@@ -362,13 +354,15 @@ class TaskRec(TaskFieldPublic):
         self.taskStateTime = getNowTimeStamp()
         self.save()
 
-    def setRunning(self, workerName: str) -> int:
+    def setRunning(self, workerName: str) -> int | None:
         if self.previousTask is not None:
             if self.previousTask.taskState < self.TaskStateChoice.success:
-                return False
+                return None
 
         if self.taskState >= self.TaskStateChoice.success:
-            return False
+            return None
+        if self.taskState <= self.TaskStateChoice.fail:
+            return None
 
         self.execute += 1
         self.workerName = workerName[:30]

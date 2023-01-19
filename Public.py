@@ -158,6 +158,7 @@ class WorkerProcessConfig:
 
 class WorkerTaskData(TypedDict):
     taskSn: int
+    name: str
     execTimeLimit: int
 
     funcPath: str
@@ -221,6 +222,7 @@ class TaskData:
     def exportToWorker(self) -> str:
         dataDict: WorkerTaskData = dict(
             taskSn=self.taskSn,
+            name=self.name,
             funcPath=self.funcPath,
             args=json.loads(self.argsStr),
             kwargs=json.loads(self.kwargsStr),

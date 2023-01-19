@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 import time
 import signal
 import traceback
@@ -10,7 +9,7 @@ from multiprocessing import current_process, Event
 from . import Public
 
 if Public.TYPE_CHECKING:
-    from .Public import (WorkerProcessConfig, TaskData, WorkerTaskData, )
+    from .Public import (WorkerProcessConfig, WorkerTaskData, )
 
 
 def workerFunc(workerConfig: WorkerProcessConfig, *args, **kwargs):
@@ -19,13 +18,13 @@ def workerFunc(workerConfig: WorkerProcessConfig, *args, **kwargs):
     workerStopEvent = Event()
     workerStopEvent.clear()
 
-    workerName = f'{Public.CONFIG.name}-worker-{workerConfig.sn:02d}-{pid:<5d}'
+    workerName = f'{Public.CONFIG.name}-作业器-{workerConfig.sn:02d}-{pid:<5d}'
     workerConfig.dispatcherClient.methodBound()
 
-    print(f'* {workerName} start @ {Public.currentTimeStr()}')
+    print(f'* {workerName} 启动 @ {Public.currentTimeStr()}')
 
     def stopSignalHandler(*_, ):
-        print(f'{workerName} receive stop signal @ {Public.currentTimeStr()}')
+        print(f'{workerName} 收到关闭信号 @ {Public.currentTimeStr()}')
         workerStopEvent.set()
 
     for sig in (signal.SIGINT, signal.SIGTERM, signal.SIGILL,):
@@ -76,6 +75,7 @@ def workerFunc(workerConfig: WorkerProcessConfig, *args, **kwargs):
                 taskSn = taskData['taskSn']
                 execTimeLimit = taskData['execTimeLimit']
                 funcPath = taskData['funcPath']
+                taskName = taskData['name']
 
                 taskFunc = Public.importFunction(funcPath)
 
@@ -90,7 +90,7 @@ def workerFunc(workerConfig: WorkerProcessConfig, *args, **kwargs):
                 )  # 发送 invalidConfig 错误
                 continue
 
-            print(f'{workerName} >>> 已拉取任务 {taskSn}')
+            print(f'{workerName} >>> 已拉取任务 {taskSn}-{taskName}')
 
             # -------------------- send time limit --------------------
             workerConfig.pipe.send(('timeLimit', execTimeLimit))

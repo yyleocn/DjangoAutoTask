@@ -71,7 +71,7 @@ class AutoTaskHandler:
             return False
         return taskRec.setError(
             errorCode=TaskRec.ErrorCodeChoice.invalidConfig,
-            message='Invalid config', detail=detail,
+            message='配置无效', detail=detail,
         )
 
     @classmethod
@@ -82,17 +82,17 @@ class AutoTaskHandler:
 
         return taskRec.setError(
             errorCode=TaskRec.ErrorCodeChoice.timeout,
-            message='Task timeout',
+            message='任务超时',
         )
 
     @classmethod
-    def setTaskRunning(cls, *_, taskSn: int, workerName: str) -> int:
+    def setTaskRunning(cls, *_, taskSn: int, workerName: str) -> int | None:
         """
         根据 taskSn 设置 TaskRec 为 running 状态
         """
         taskRec = TaskRec.manageTaskRec(taskSn=taskSn)
         if taskRec is None:
-            return 0
+            return None
         return taskRec.setRunning(workerName=workerName, )
 
     @classmethod
@@ -100,3 +100,7 @@ class AutoTaskHandler:
         TaskScheme.dueSchemeApply()
         # for scheme in expireScheme:
         #     scheme.schemeApply()
+
+    @classmethod
+    def expireTaskProcess(cls):
+        pass
