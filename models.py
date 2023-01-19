@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import time
+import warnings
+import traceback
 
 from croniter import croniter
 
@@ -122,7 +124,7 @@ class TaskScheme(TaskFieldPublic):
     taskSchemeSn = models.AutoField(primary_key=True)  # scheme sn
 
     # -------------------- next --------------------
-    cronStr = models.CharField(max_length=20, null=False, blank=False)  # crontab 配置
+    cronStr = models.CharField(max_length=20, null=True, blank=False, default=None)  # crontab 配置
     interval = models.PositiveIntegerField(default=86400)  # 执行间隔，默认一天
 
     currentTask = models.ForeignKey(
@@ -133,47 +135,62 @@ class TaskScheme(TaskFieldPublic):
 
     priority = None
 
-    message = models.CharField(max_length=30, null=True, blank=True)
+    message = models.CharField(max_length=30, null=True, blank=True, default=None)
 
     @classmethod
-    def queryDueScheme(cls) -> QuerySet[TaskScheme]:
+    def dueSchemeQuery(cls) -> QuerySet[TaskScheme]:
         return cls.objects.filter(planTime__lt=getNowTimeStamp() + 30, cancel=False, pause=False, )
 
     @classmethod
-    def processDueScheme(cls):
-        dueSchemeArray = list(cls.queryDueScheme())
+    def dueSchemeApply(cls):
+        dueSchemeArray = list(cls.dueSchemeQuery())
         for taskScheme in dueSchemeArray:
-            taskScheme.schemeApply()
+            try:
+                taskScheme.schemeApply()
+            except Exception as error:
+                warnings.warn(f'{traceback.format_exc()}')
+                warnings.warn(f'到期计划 {taskScheme.taskSchemeSn} 实施失败')
 
     def schemeApply(self):
         currentTime = getNowTimeStamp()
-        if currentTime + 30 < self.planTime:
+
+        if currentTime + 10 < self.planTime:
             return False
+
+        if self.currentTask:
+            if TaskRec.TaskStateChoice.fail < self.currentTask.taskState < TaskRec.TaskStateChoice.success:
+                warnings.warn(f'计划 {self.taskSchemeSn} 当前作业未完成, 未创建新的作业')
+                return False
+
+        nowStamp = getNowTimeStamp()
 
         if self.cronStr:
             cronTimer = croniter(self.cronStr, currentTime)
             nextPlanTime = cronTimer.next()
             if nextPlanTime <= self.planTime:
                 return False
-            self.planTime = cronTimer.next()
+            if nextPlanTime < nowStamp:
+                nextPlanTime = nowStamp
         else:
             if not self.interval:
                 return False
-            self.planTime += self.interval
+            nextPlanTime = self.planTime + self.interval
+            if nextPlanTime < nowStamp:
+                nextPlanTime = self.planTime + ((nowStamp - self.planTime) // self.interval + 1) * self.interval
 
-        # print(f'  TaskScheme {self.taskSchemeSn} create next task')
+        newTaskRec = self.createTaskRec()
 
-        nextTaskRec = self.createTaskRec()
-
-        self.currentTask = nextTaskRec
+        self.planTime = nextPlanTime
+        self.currentTask = newTaskRec
 
         self.save()
+
+        print(f'计划 {self.taskSchemeSn} 下次作业时间 {Public.timeStampToString(nextPlanTime)}')
 
     def createTaskRec(self) -> TaskRec:
         nextTask = TaskRec(
             createUser=self.createUser,
 
-            # type=TaskRec.TypeChoice.scheme,
             name=f'''{self.name}-{Public.timeStampToString(self.planTime, formatStr='%Y%m%d-%H%M%S')}''',
             tag=self.tag,
 
@@ -181,16 +198,15 @@ class TaskScheme(TaskFieldPublic):
 
             planTime=self.planTime,
             priority=TaskRec.PriorityChoice.scheme,
-            executeTimeLimit=self.execTimeLimit,
 
             # config=self.configJson,
             funcPath=self.funcPath,
             argsStr=self.argsStr,
             kwargsStr=self.kwargsStr,
 
-            timeLimit=self.execTimeLimit,
-            delay=self.retryDelay,
-            retry=self.execLimit,
+            execTimeLimit=self.execTimeLimit,
+            retryDelay=self.retryDelay,
+            execLimit=self.execLimit,
         )
         nextTask.save()
         return nextTask

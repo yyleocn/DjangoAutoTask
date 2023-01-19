@@ -97,6 +97,6 @@ class AutoTaskHandler:
 
     @classmethod
     def taskSchemeAuto(cls):
-        expireScheme = TaskScheme.queryDueScheme()
-        for scheme in expireScheme:
-            scheme.schemeApply()
+        TaskScheme.dueSchemeApply()
+        # for scheme in expireScheme:
+        #     scheme.schemeApply()
