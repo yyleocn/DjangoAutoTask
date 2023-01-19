@@ -61,6 +61,8 @@ class TaskFieldPublic(models.Model):
     class PriorityChoice(models.IntegerChoices):
         max = 10
         scheme = 20
+        levelA = 30
+        levelB = 40
         normal = 50
         idle = 100
 
@@ -267,7 +269,7 @@ class TaskRec(TaskFieldPublic):
     execWarn = models.TextField(null=True, blank=False, default=None, )
 
     errorCode = models.IntegerField(null=True, choices=ErrorCodeChoice.choices, )  # 错误代码
-    errorMessage = models.CharField(max_length=20, null=True, blank=False, )  # 错误信息
+    errorMessage = models.TextField(null=True, blank=False, default=None)  # 错误信息
 
     # -------------------- time stamp --------------------
     retryTime = models.BigIntegerField(default=0)  # 重试时间
