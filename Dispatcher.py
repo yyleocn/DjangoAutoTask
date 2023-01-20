@@ -83,6 +83,10 @@ class TaskDispatcher:
         return True
 
     def exit(self):
+        if not self.__shutdown:
+            print('调度器未离线，请离线后再关闭')
+            return
+
         self.__exit = True
         time.sleep(5)
         exit()
