@@ -193,21 +193,35 @@ class TaskData:
         assert isfunction(func), '无效的 func'
         funcPath = f'{getmodule(func).__name__}.{func.__name__}'
 
-        argsStr = '[]'
+        packData = dict(
+            funcPath=funcPath,
+            argsStr='[]',
+            kwargsStr='{}',
+            execTimeLimit=CONFIG.execTimeLimit,
+        )
+
         if args:
-            argsStr = CONFIG.handler.serialize(args)
+            packData.update(
+                argsStr=CONFIG.handler.serialize(args)
+            )
 
-        kwargsStr = '{}'
         if kwargs:
-            kwargsStr = CONFIG.handler.serialize(kwargs)
+            packData.update(
+                kwargsStr=CONFIG.handler.serialize(kwargs)
+            )
 
-        if execTimeLimit is None:
-            execTimeLimit = CONFIG.execTimeLimit
+        if execTimeLimit is not None:
+            packData.update(
+                execTimeLimit=execTimeLimit
+            )
+        if priority is not None:
+            packData.update(
+                priority=priority,
+            )
 
         return cls(
-            name=name, funcPath=funcPath, argsStr=argsStr, kwargsStr=kwargsStr,
-            blockKey=blockKey, execTimeLimit=execTimeLimit,
-            note=note, tag=tag,
+            name=name, **packData,
+            blockKey=blockKey, note=note, tag=tag,
         )
 
     def exportToSaveModel(self) -> dict:

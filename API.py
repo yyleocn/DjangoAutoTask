@@ -56,7 +56,10 @@ def createTaskPack(packageName: str, taskDataArr: Iterable[TaskData, ...]):
     taskPackageRec.save()
 
 
-def createTaskScheme(taskData: TaskData, cronStr: str = None, interval: int = None, retainTime: int = None):
+def createTaskScheme(
+        taskData: TaskData,
+        cronStr: str = None, interval: int = None, retainTime: int = None,
+):
     assert isinstance(cronStr, str) or isinstance(interval, int), 'cronStr 和 interval 必须有一个'
 
     taskDataDict = taskData.exportToSaveModel()

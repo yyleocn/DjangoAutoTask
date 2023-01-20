@@ -165,11 +165,11 @@ class WorkerCluster:
 
         def shutdownHandler(*_):
             print(f'{self} 接收到关闭信号 @ {Public.currentTimeStr()}')
+            self.__shutdown = True
             for subProcess in self.__processPool:
                 if not subProcess:
                     continue
                 if subProcess.isAlive():
-                    self.__shutdown = True
                     self.offline()
                     return
 
