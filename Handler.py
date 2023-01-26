@@ -34,10 +34,7 @@ class AutoTaskHandler:
     def getTaskQueue(cls, *_, taskType: int | None = None, limit: int | None = None) -> tuple[TaskState, ...]:
         querySet = TaskRec.getTaskQueue(taskType=taskType, size=limit)
         taskDataArr = TaskRec.exportTaskData(querySet)
-        return tuple(
-            Public.TaskState(taskData=taskData)
-            for taskData in taskDataArr
-        )
+        return tuple(Public.TaskState(taskData=taskData) for taskData in taskDataArr)
 
     @classmethod
     def setTaskRecSuccess(
@@ -47,7 +44,10 @@ class AutoTaskHandler:
         taskRec = TaskRec.manageTaskRec(taskSn=taskSn)
         if taskRec is None:
             return False
-        return taskRec.setSuccess(result=cls.serialize(result), execWarn=execWarn, )
+        return taskRec.setSuccess(
+            result=cls.serialize(result),
+            execWarn=execWarn,
+        )
 
     @classmethod
     def setTaskRecCrash(
@@ -57,6 +57,7 @@ class AutoTaskHandler:
         taskRec = TaskRec.manageTaskRec(taskSn=taskSn)
         if taskRec is None:
             return False
+
         return taskRec.setError(
             errorCode=TaskRec.ErrorCodeChoice.crash,
             message=message,
@@ -65,25 +66,25 @@ class AutoTaskHandler:
         )
 
     @classmethod
-    def setTaskRecInvalidConfig(cls, *_, taskSn: int, detail: str):
-        taskRec = TaskRec.manageTaskRec(taskSn=taskSn)
-        if taskRec is None:
-            return False
-        return taskRec.setError(
-            errorCode=TaskRec.ErrorCodeChoice.invalidConfig,
-            message='配置无效', detail=detail,
+    def getRunningBlockKey(cls) -> set[str]:
+        return TaskRec.getRunningBlockKey()
+
+    @classmethod
+    def setTaskRecInvalidConfig(cls, *_, runningWorkerName: str, detail: str):
+        TaskRec.setInvalidConfig(
+            runningWorkerName=runningWorkerName,
+            detail=detail,
         )
 
     @classmethod
-    def setTaskTimeout(cls, *_, taskSn: int):
-        taskRec = TaskRec.manageTaskRec(taskSn=taskSn)
-        if taskRec is None:
-            return False
-
-        return taskRec.setError(
-            errorCode=TaskRec.ErrorCodeChoice.timeout,
-            message='任务超时',
-        )
+    def overtimeTaskProcess(cls):
+        overtimeTaskArr = TaskRec.queryOvertimeTask()
+        for overtimeTaskRec in overtimeTaskArr:
+            overtimeTaskRec.setError(
+                errorCode=TaskRec.ErrorCodeChoice.timeout,
+                message='任务超时',
+            )
+            print(f'任务 {TaskRec.taskSn} 超时')
 
     @classmethod
     def setTaskRunning(cls, *_, taskSn: int, workerName: str) -> int | None:

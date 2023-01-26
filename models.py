@@ -7,7 +7,7 @@ import traceback
 from croniter import croniter
 
 from django.db import models
-from django.db.models import QuerySet, Q
+from django.db.models import QuerySet, Q, F
 
 from django.db.models.signals import pre_delete
 from . import Public
@@ -291,6 +291,15 @@ class TaskRec(TaskFieldPublic):
         return taskRec
 
     @classmethod
+    def getRunningBlockKey(cls) -> set[str]:
+        queryRes = cls.objects.filter(
+            taskState=cls.TaskStateChoice.running,
+        ).values('blockKey')
+        return set(
+            taskRecValue.get('blockKey') for taskRecValue in queryRes if taskRecValue.get('blockKey')
+        )
+
+    @classmethod
     def getTaskQueue(
             cls, *_,
             size: int = None,
@@ -312,16 +321,23 @@ class TaskRec(TaskFieldPublic):
             qConfig.append(Q(priority__lte=priority))
 
         if isinstance(taskState, int):
-            qConfig.append(Q(taskState=taskState))
+            qConfig.append(Q(taskState=taskState))  # 有 state 就查询对应的状态
+        else:
+            qConfig.append(
+                ~Q(taskState=cls.TaskStateChoice.running)  # 状态不是 running
+                & Q(
+                    taskState__gt=cls.TaskStateChoice.fail,  # 状态介于 fail 和 success 之间
+                    taskState__lt=cls.TaskStateChoice.success,
+                )
+            )
 
         taskQuery = cls.objects.filter(
             Q(previousTask__isnull=True) | Q(previousTask__taskState__gte=cls.TaskStateChoice.success),  # 没有前置任务或已完成
-            taskState__gt=cls.TaskStateChoice.fail, taskState__lt=cls.TaskStateChoice.success,  # 状态介于 fail 和 success 之间
+            taskState__range=(),
             planTime__lte=currentTime, retryTime__lte=currentTime,  # planTime & retryTime 小于当前时间
             pause=False, cancel=False,  # 没有 暂停/取消
             *qConfig,
-
-        ).order_by('priority', 'startTime', 'createTime')[:querySize]
+        ).order_by('priority', F('planTime').asc(nulls_last=True), 'createTime', )[:querySize]
 
         return taskQuery
 
@@ -340,19 +356,29 @@ class TaskRec(TaskFieldPublic):
         )
 
     @classmethod
-    def overtimeTask(cls, ) -> QuerySet[TaskRec]:
+    def queryOvertimeTask(cls, ) -> QuerySet[TaskRec]:
         currentTime = getNowTimeStamp()
-        queryConfig = [
-            Q(taskState=cls.TaskStateChoice.running),
-            Q(expireTime__lt=currentTime - 5),
-        ]
-
-        return cls.objects.filter(*queryConfig)
+        return cls.objects.filter(
+            taskState=cls.TaskStateChoice.running,
+            startTime__lt=currentTime - F('execTimeLimit') - 2,
+        )
 
     def updateState(self, taskState: int):
         self.taskState = taskState
         self.taskStateTime = getNowTimeStamp()
         self.save()
+
+    @classmethod
+    def setInvalidConfig(cls, runningWorkerName: str, detail=detail, ):
+        querySet = cls.objects.filter(
+            workerName=runningWorkerName,
+            taskState=cls.TaskStateChoice.running,
+        )
+        for taskRec in querySet:
+            taskRec.setError(
+                errorCode=TaskRec.ErrorCodeChoice.invalidConfig,
+                message='配置无效', detail=detail,
+            )
 
     def setRunning(self, workerName: str) -> int | None:
         if self.previousTask is not None:
@@ -368,7 +394,6 @@ class TaskRec(TaskFieldPublic):
         self.workerName = workerName[:30]
 
         self.startTime = getNowTimeStamp()
-        self.timeout = self.startTime + self.execTimeLimit
 
         self.updateState(self.TaskStateChoice.running)
 

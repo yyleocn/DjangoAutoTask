@@ -187,7 +187,7 @@ class TaskData:
     @classmethod
     def pack(
             cls, *_, name: str, func: Callable, args: tuple | list = None, kwargs: dict = None,
-            blockKey: int = None, execTimeLimit: int = None, priority: int = None,
+            blockKey: str = None, execTimeLimit: int = None, priority: int = None,
             note: str = None, tag: str = None,
     ) -> TaskData:
         assert isfunction(func), '无效的 func'

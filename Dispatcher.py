@@ -3,7 +3,6 @@ from __future__ import annotations
 import time
 import signal
 from typing import Callable
-from operator import attrgetter
 
 from multiprocessing import (current_process, )
 from multiprocessing.managers import BaseManager
@@ -41,7 +40,7 @@ class TaskDispatcher:
     def __init__(self, *_, **kwargs):
         self.__taskQueueLock: bool = False
         self.__taskQueue: list[TaskState] = []
-        self.__taskDict: dict[int, TaskState] = {}
+        # self.__taskDict: dict[int, TaskState] = {}
         self.__exit: bool = False
         self.__shutdown: bool = False
         self.__pid = current_process().pid
@@ -95,51 +94,24 @@ class TaskDispatcher:
         # --------------- lock queue --------------------
         self.__taskQueueLock = True
 
-        currentTime = Public.getNowStamp()
-
-        # --------------- remove overtime task --------------------
-        for taskState in self.__taskQueue:
-            if taskState.done:
-                continue
-            if taskState.endTime is None:
-                continue
-            if taskState.endTime + 2 < currentTime:
-                self.taskTimeout(taskSn=taskState.taskData.taskSn)
-                self.removeTask(taskSn=taskState.taskData.taskSn)
-
         if not self.isRunning():
             return
 
-        # --------------- get executing task --------------------
-        runningTask: list[TaskState] = [
-            taskState for taskState in self.__taskQueue
-            if taskState.workerName is not None
-        ]
+        runningBlockKeySet: set[str] = set(
+            taskState.taskData.blockKey for taskState in self.__taskQueue
+            if taskState.workerName is not None and taskState.taskData.blockKey
+        )
 
-        executingTaskSn: set[int] = {
-            taskState.taskData.taskSn for taskState in runningTask
-        }
+        runningBlockKeySet.update(
+            self.__handler.getRunningBlockKey()
+        )
 
-        # --------------- get append task --------------------
-        appendTask: list[TaskState] = [
-            taskState for taskState in self.__handler.getTaskQueue(limit=Public.CONFIG.queueSize)
-            if taskState.taskData.taskSn not in executingTaskSn
-        ]
-
-        # --------------- sort by priority --------------------
-        newQueue: list[TaskState] = [
-                                        taskRec for taskRec in (*runningTask, *appendTask,) if not taskRec.done
-                                    ][:Public.CONFIG.queueSize]
-
-        # --------------- new queue sort --------------------
-        newQueue.sort(key=attrgetter('priority', 'taskSn'))
+        # --------------- 查询获取新队列 --------------------
+        newQueue: tuple[TaskState] = self.__handler.getTaskQueue(limit=Public.CONFIG.queueSize)
 
         # --------------- set new queue --------------------
-        self.__taskDict = {taskState.taskData.taskSn: taskState for taskState in newQueue}
         self.__taskQueue = newQueue
-        self.__taskBlockSet = set(
-            taskState.taskData.taskSn for taskState in newQueue if taskState.workerName
-        )
+        self.__taskBlockSet = runningBlockKeySet
 
         print(f'调度器队列已刷新, 当前任务总数 {len(self.__taskQueue)}')
 
@@ -181,6 +153,8 @@ class TaskDispatcher:
 
             # --------------- 锁定任务 --------------------
             selectTask.workerName = workerName
+            if not selectTask.workerName == workerName:
+                continue
 
             # --------------- set task running to db --------------------
             selectTask.endTime = self.__handler.setTaskRunning(
@@ -189,48 +163,27 @@ class TaskDispatcher:
             )
 
             if not selectTask.endTime:
-                self.removeTask(selectTask.taskData.taskSn)
                 continue
 
             if isinstance(selectTask.taskData.blockKey, str):
                 self.__taskBlockSet.add(selectTask.taskData.blockKey)
-            print(f'{workerName} get task {selectTask.taskData.taskSn}')
+            print(f'{workerName} 获取任务 {selectTask.taskData.taskSn}')
             return selectTask.exportToWorker()
 
-    def removeTask(self, taskSn: int):
-        taskState = self.__taskDict.get(taskSn)
-        if taskState is None:
-            return False
-
-        self.__taskDict.pop(taskSn)
-        self.__taskQueue.remove(taskState)
-
-        blockKey = taskState.taskData.blockKey
-        if blockKey in self.__taskBlockSet:
-            self.__taskBlockSet.remove(blockKey)
-
-        return True
-
     def taskSuccess(self, *_, taskSn: int = None, result: any = None, execWarn: str | None = None, ):
-        print(f'任务 {taskSn} 完成, 结果是 {result}')
-        self.removeTask(taskSn)
-        return self.__handler.setTaskRecSuccess(taskSn=taskSn, result=result, execWarn=execWarn, )
+        print(f'{taskSn} 任务完成, 结果是 {result}')
+        return self.__handler.setTaskRecSuccess(
+            taskSn=taskSn, result=result, execWarn=execWarn,
+        )
 
     def taskCrash(self, *_, taskSn: int, message: str, detail: str, execWarn: str | None = None, ):
-        print(f'任务 {taskSn} 失败: {message}')
-        self.removeTask(taskSn)
+        print(f'{taskSn} 任务失败: {message}')
         return self.__handler.setTaskRecCrash(
             taskSn=taskSn, message=message, detail=detail, execWarn=execWarn,
         )
 
-    def taskTimeout(self, *_, taskSn: int, ):
-        print(f'任务 {taskSn} 超时')
-        return self.__handler.setTaskTimeout(taskSn=taskSn)
-
-    def invalidConfig(self, *_, workerName: str, detail: str = None):
-        for taskState in self.__taskQueue:
-            if taskState.workerName == workerName:
-                return self.__handler.setTaskRecInvalidConfig(taskSn=taskState.taskSn, detail=detail)
+    def invalidConfig(self, *_, runningWorkerName: str, detail: str = None):
+        return self.__handler.setTaskRecInvalidConfig(runningWorkerName=runningWorkerName, detail=detail)
 
     def ping(self, state, *_, ):
         if isinstance(state, dict):
