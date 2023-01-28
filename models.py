@@ -387,6 +387,7 @@ class TaskRec(TaskFieldPublic):
 
         if self.taskState >= self.TaskStateChoice.success:
             return None
+
         if self.taskState <= self.TaskStateChoice.fail:
             return None
 
@@ -397,7 +398,7 @@ class TaskRec(TaskFieldPublic):
 
         self.updateState(self.TaskStateChoice.running)
 
-        return self.timeout
+        return self.startTime + self.execTimeLimit
 
     def setError(
             self, errorCode: ErrorCodeChoice,

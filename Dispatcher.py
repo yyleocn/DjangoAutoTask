@@ -161,7 +161,6 @@ class TaskDispatcher:
                 taskSn=selectTask.taskData.taskSn,
                 workerName=selectTask.workerName,
             )
-
             if not selectTask.endTime:
                 continue
 

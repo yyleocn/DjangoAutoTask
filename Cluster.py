@@ -184,7 +184,7 @@ class WorkerCluster:
         print(f'{self} >>> 初始化, 子进程 {self.__poolSize} 个')
 
     def __str__(self):
-        return f'{self.__localName}-作业器-{self.pid}'
+        return f'{self.__localName}-群集-{self.pid}'
 
     def checkSubProcess(self):
         if self.__clusterOffline.is_set():

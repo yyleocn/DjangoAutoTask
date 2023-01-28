@@ -100,16 +100,16 @@ def workerFunc(workerConfig: WorkerProcessConfig, *args, **kwargs):
             execWarn: str | None = None
             exception = None
             crashDetail = None
-            with Public.catch_warnings(record=True) as warnArr:  # 捕获 warnings
+            with Public.catch_warnings(record=True) as warnMsgArr:  # 捕获 warnings
                 try:
                     result = taskFunc(*taskArgs, **taskKwargs)
                 except Exception as exception_:  # 捕获 exception
                     print(f'{workerNamePrint} >>> 运行错误 {taskSn} - {exception_}')
                     exception = exception_
                     crashDetail = traceback.format_exc()
-                if warnArr:
+                if warnMsgArr:
                     execWarn = '\n'.join(
-                        str(execWarn) for execWarn in warnArr
+                        str(warnMsg.message) for warnMsg in warnMsgArr
                     )
 
             if exception is not None:
