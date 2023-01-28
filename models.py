@@ -322,7 +322,9 @@ class TaskRec(TaskFieldPublic):
         else:
             qConfig.append(
                 ~Q(taskState=cls.TaskStateChoice.running)  # 状态不是 running
-                & Q(
+            )
+            qConfig.append(
+                Q(
                     taskState__gt=cls.TaskStateChoice.fail,  # 状态介于 fail 和 success 之间
                     taskState__lt=cls.TaskStateChoice.success,
                 )
@@ -330,7 +332,6 @@ class TaskRec(TaskFieldPublic):
 
         taskQuery = cls.objects.filter(
             Q(previousTask__isnull=True) | Q(previousTask__taskState__gte=cls.TaskStateChoice.success),  # 没有前置任务或已完成
-            taskState__range=(),
             planTime__lte=currentTime, retryTime__lte=currentTime,  # planTime & retryTime 小于当前时间
             pause=False, cancel=False,  # 没有 暂停/取消
             *qConfig,
@@ -345,8 +346,10 @@ class TaskRec(TaskFieldPublic):
     )
 
     @classmethod
-    def exportTaskData(cls, querySet: QuerySet[TaskRec]) -> tuple[TaskData, ...]:
-        taskRecValueArr = querySet.values(*cls.taskDataValueFields)
+    def exportQueryTaskData(cls, querySet: QuerySet[TaskRec]) -> tuple[TaskData, ...]:
+        taskRecValueArr = list(
+            querySet.values(*cls.taskDataValueFields)
+        )
         return tuple(
             Public.TaskData(**taskRecValue)
             for taskRecValue in taskRecValueArr

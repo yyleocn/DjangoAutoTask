@@ -33,7 +33,7 @@ class AutoTaskHandler:
     @classmethod
     def getTaskQueue(cls, *_, taskType: int | None = None, limit: int | None = None) -> tuple[TaskState, ...]:
         querySet = TaskRec.getTaskQueue(taskType=taskType, size=limit)
-        taskDataArr = TaskRec.exportTaskData(querySet)
+        taskDataArr = TaskRec.exportQueryTaskData(querySet)
         return tuple(Public.TaskState(taskData=taskData) for taskData in taskDataArr)
 
     @classmethod
