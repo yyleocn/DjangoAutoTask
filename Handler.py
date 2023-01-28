@@ -93,7 +93,6 @@ class AutoTaskHandler:
         """
         taskRec = TaskRec.manageTaskRec(taskSn=taskSn)
         if taskRec is None:
-            print(None)
             return None
         return taskRec.setRunning(workerName=workerName, )
 
