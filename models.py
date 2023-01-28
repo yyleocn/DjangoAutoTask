@@ -221,9 +221,6 @@ class TaskRec(TaskFieldPublic):
             'planTime', 'retryTime',
             'taskState', 'pause', 'cancel',
         )
-        ordering = (
-            'priority', 'taskSn',
-        )
 
     taskSn = models.BigAutoField(primary_key=True)  # task sn
 
