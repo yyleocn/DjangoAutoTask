@@ -91,7 +91,7 @@ def workerFunc(workerConfig: WorkerProcessConfig, *args, **kwargs):
                 )  # 发送 invalidConfig 错误
                 continue
 
-            print(f'{workerNamePrint} >>> 拉取任务 {taskSn} - {taskName}')
+            # print(f'{workerNamePrint} >>> 拉取任务 {taskSn} - {taskName}')
 
             # -------------------- send time limit --------------------
             workerConfig.pipe.send(('timeLimit', execTimeLimit))
@@ -100,11 +100,12 @@ def workerFunc(workerConfig: WorkerProcessConfig, *args, **kwargs):
             execWarn: str | None = None
             exception = None
             crashDetail = None
+            startTime = time.time()
             with Public.catch_warnings(record=True) as warnMsgArr:  # 捕获 warnings
                 try:
                     result = taskFunc(*taskArgs, **taskKwargs)
                 except Exception as exception_:  # 捕获 exception
-                    print(f'{workerNamePrint} >>> 运行错误 {taskSn} - {exception_}')
+                    print(f'{workerNamePrint} 任务失败 {taskSn} - {taskName} \n  >>>  {exception_}')
                     exception = exception_
                     crashDetail = traceback.format_exc()
                 if warnMsgArr:
@@ -123,7 +124,7 @@ def workerFunc(workerConfig: WorkerProcessConfig, *args, **kwargs):
                 )  # 发送 taskCrash 错误
                 continue
 
-            print(f'{workerNamePrint} >>> 任务完成 {taskSn} - {taskName}')
+            print(f'{workerNamePrint} 任务完成 {taskSn} - {taskName} @ {time.time() - startTime:.03f}s')
 
             Public.remoteProxyCall(
                 workerConfig.dispatcherClient.taskSuccess,  # 发送 taskSuccess
@@ -131,6 +132,7 @@ def workerFunc(workerConfig: WorkerProcessConfig, *args, **kwargs):
                 result=result,
                 execWarn=execWarn,
             )
+            time.sleep(0.1)
 
             # -------------------- 捕获 TimeoutException --------------------
         except Public.ProxyTimeout as exception_:
