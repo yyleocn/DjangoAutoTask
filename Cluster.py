@@ -84,11 +84,10 @@ class WorkerProcess:
     def checkProcess(self) -> int:
         while self.__pipe.poll():
             code, value = self.__pipe.recv()
-            match code:
-                case 'alive':
-                    self.refreshWorkerTimeLimit()
-                case 'timeLimit':
-                    self.refreshWorkerTimeLimit(value)
+            if code == 'alive':
+                self.refreshWorkerTimeLimit()
+            if code == 'timeLimit':
+                self.refreshWorkerTimeLimit(value)
 
         if self.__workerTimeLimit < time.time():
             self.workerTerminate()
@@ -246,6 +245,7 @@ class WorkerCluster:
                         print(f'{self} >>> 调度器通讯错误: {pingRes}')
 
                 if pingRes == 0:
+                    dispatcherCheckTime = time.time()  # 正常状态更新调度器时间
                     pass  # 空闲状态没有操作
 
                 if time.time() - dispatcherCheckTime > Public.CONFIG.dispatcherTimeout:
