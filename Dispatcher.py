@@ -42,18 +42,18 @@ class TaskDispatcher:
         self.__taskQueue: list[TaskState] = []
         # self.__taskDict: dict[int, TaskState] = {}
         self.__exit: bool = False
-        self.__shutdown: bool = False
+        self.__offline: bool = False
         self.__pid = current_process().pid
         self.__clusterDict = {}
         self.__taskBlockSet: set[str] = set()
 
-        print(f'Task dispatcher {self.pid} init')
+        print(f'{self} 已启动')
 
         if Public.CONFIG.handlerClass:
             try:
                 handlerClass = Public.importComponent(Public.CONFIG.handlerClass)
-            except:
-                raise Exception('Handler class not exist')
+            except Exception as error:
+                raise Exception('Handler class not exist') from error
             if not issubclass(handlerClass, Handler.AutoTaskHandler):
                 raise Exception('Invalid handler class')
             self.__handler = handlerClass()
@@ -62,27 +62,30 @@ class TaskDispatcher:
             self.__handler = Handler.AutoTaskHandler()
 
         def shutdownHandler(*_, ):
-            print(f'Dispatcher {self.pid} receive stop signal @ {Public.currentTimeStr()}')
+            print(f'{self} 接收到关闭信号 @ {Public.currentTimeStr()}')
             self.exit()
 
         for sig in (signal.SIGINT, signal.SIGTERM, signal.SIGILL,):
             signal.signal(sig, shutdownHandler)
 
-    def shutdownDispatcher(self):
-        self.__shutdown = True
-        return 'The TaskManger is set to shutdown'
+    def __str__(self):
+        return f'调度器{self.__pid}'
+
+    def offlineDispatcher(self):
+        self.__offline = True
+        return f'{self}准备关闭'
 
     @property
     def pid(self):
         return self.__pid
 
     def isRunning(self):
-        if self.__exit or self.__shutdown:
+        if self.__exit or self.__offline:
             return False
         return True
 
     def exit(self):
-        if not self.__shutdown:
+        if not self.__offline:
             print('调度器未离线，请离线后再关闭')
             return
 
@@ -170,7 +173,7 @@ class TaskDispatcher:
             return selectTask.exportToWorker()
 
     def taskSuccess(self, *_, taskSn: int = None, result: any = None, execWarn: str | None = None, ):
-        print(f'{taskSn} 任务完成, 结果是 {result}')
+        print(f'{taskSn} 任务完成')
         return self.__handler.setTaskRecSuccess(
             taskSn=taskSn, result=result, execWarn=execWarn,
         )
@@ -187,8 +190,6 @@ class TaskDispatcher:
     def ping(self, state, *_, ):
         if isinstance(state, dict):
             clusterName = state.get('name')
-            clusterPid = state.get('pid')
-            clusterStatus = state.get('status')
             print(f'群集 {clusterName} ping 了一下')
             self.__clusterDict[clusterName] = state
 
@@ -201,7 +202,7 @@ class TaskDispatcher:
     def status(self):
         return {
             'name': Public.CONFIG.name,
-            'state': 'running' if self.isRunning() else 'shutdown',
+            'state': 'running' if self.isRunning() else 'offline',
             'cluster': self.__clusterDict.values(),
             'runningTask': [
                 {
@@ -253,7 +254,7 @@ class DispatcherServer(BaseManager):
 
 class DispatcherAdmin(BaseManager):
     __methodBounded = False
-    shutdownDispatcher: Callable
+    offlineDispatcher: Callable
     status: Callable
     isRunning: Callable
     refreshTaskQueue: Callable

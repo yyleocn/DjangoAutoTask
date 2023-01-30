@@ -22,6 +22,20 @@ def createTask(taskData: TaskData):
     taskRec.save()
 
 
+def createMultiTask(taskDataArr: Iterable[TaskData, ...], step: str = 1000):
+    taskDataArr = tuple(taskDataArr)
+    while True:
+        taskDataArrSlice = taskDataArr[:step]
+        insertArray = tuple(
+            TaskRec(**taskData.exportToSaveModel())
+            for taskData in taskDataArrSlice
+        )
+        TaskRec.objects.bulk_create(insertArray, ignore_conflicts=True)
+        taskDataArr = taskDataArr[step:]
+        if not taskDataArr:
+            break
+
+
 #       #######                    #               ####   #                    #
 #          #                       #              #    #  #
 #          #      ######   #####   #   ##        #        ######    ######   ###     # ####

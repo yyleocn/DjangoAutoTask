@@ -59,17 +59,17 @@ def workerFunc(workerConfig: WorkerProcessConfig, *args, **kwargs):
             # -------------------- refresh dispatcher check time --------------------
             dispatcherCheckTime = currentTime
 
-            if fetchData == 1:
-                time.sleep(0.5)  # -1 表示忙碌状态，暂停 0.5 秒
+            if fetchData == 1:  # 1 表示忙碌状态，暂停 0.5 秒
+                time.sleep(0.5)
                 continue
             if fetchData == 0:
-                print(f'{workerNamePrint} >>> 队列为空，等待中')
-                time.sleep(5)  # 1 表示目前没有任务，暂停 5 秒
+                # print(f'{workerNamePrint} >>> 队列为空，等待中')  # 0 表示目前没有任务，暂停 5 秒
+                time.sleep(10)
                 continue
-            if fetchData == -1:
-                break  # 0 表示管理器进入关闭状态，退出循环
+            if fetchData == -1:  # -1 表示管理器进入关闭状态，退出循环
+                break
 
-            # -------------------- config check & unpack --------------------
+                # -------------------- config check & unpack --------------------
 
             try:
                 taskData: WorkerTaskData = Public.CONFIG.handler.deserialize(fetchData)  # 解析 taskData 的数据
@@ -124,7 +124,7 @@ def workerFunc(workerConfig: WorkerProcessConfig, *args, **kwargs):
                 )  # 发送 taskCrash 错误
                 continue
 
-            print(f'{workerNamePrint} 任务完成 {taskSn} - {taskName} @ {time.time() - startTime:.03f}s')
+            # print(f'{workerNamePrint} 任务完成 {taskSn} - {taskName} @ {time.time() - startTime:.03f}s')
 
             Public.remoteProxyCall(
                 workerConfig.dispatcherClient.taskSuccess,  # 发送 taskSuccess

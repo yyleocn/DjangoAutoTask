@@ -13,7 +13,8 @@ from ...Handler import AutoTaskHandler
 class Command(BaseCommand):
     help = 'Run AutoTask command'
 
-    def dispatcherHostInit(self):
+    @staticmethod
+    def dispatcherHostInit():
         dispatcherHost = DispatcherServer(
             address=('', CONFIG.port),
             authkey=CONFIG.authKey,
@@ -29,7 +30,8 @@ class Command(BaseCommand):
 
         return dispatcherHost
 
-    def dispatcherAdminInit(self):
+    @staticmethod
+    def dispatcherAdminInit():
         dispatcherAdmin = DispatcherAdmin(
             address=('localhost', CONFIG.port),
             authkey=CONFIG.authKey,
@@ -37,7 +39,8 @@ class Command(BaseCommand):
 
         return dispatcherAdmin
 
-    def workerClusterInit(self):
+    @staticmethod
+    def workerClusterInit():
         dispatcherClient = DispatcherClient(
             address=(CONFIG.host, CONFIG.port),
             authkey=CONFIG.authKey,
@@ -64,11 +67,15 @@ class Command(BaseCommand):
         checkTime = 0
         while True:
             if time.time() - checkTime > 5:
-                isRunning = dispatcherAdmin.isRunning()._getvalue()
-                if isRunning:
-                    AutoTaskHandler.taskSchemeAuto()
-                dispatcherAdmin.refreshTaskQueue()._getvalue()
-                checkTime = time.time()
+                try:
+                    isRunning = dispatcherAdmin.isRunning()._getvalue()
+                    if isRunning:
+                        AutoTaskHandler.taskSchemeAuto()
+                    AutoTaskHandler.overtimeTaskProcess()
+                    dispatcherAdmin.refreshTaskQueue()._getvalue()
+                    checkTime = time.time()
+                except Exception as error:
+                    print(error)
             time.sleep(0.2)
 
     @no_translations
@@ -84,16 +91,23 @@ class Command(BaseCommand):
             help='Command: dispatcher / cluster / shutdown / status',
         )
 
-    def shutdownDispatcher(self):
+    @staticmethod
+    def closeDispatcher():
         dispatcherAdmin = DispatcherAdmin(
             address=('localhost', CONFIG.port),
             authkey=CONFIG.authKey,
         )
         dispatcherAdmin.connect()
-        res = dispatcherAdmin.shutdownDispatcher()._getvalue()
+        while True:
+            try:
+                res = dispatcherAdmin.offlineDispatcher()._getvalue()
+                break
+            except Exception as error:
+                print(error)
         print(res)
 
-    def status(self):
+    @staticmethod
+    def status():
         dispatcherAdmin = DispatcherAdmin(
             address=('localhost', CONFIG.port),
             authkey=CONFIG.authKey,
@@ -106,7 +120,7 @@ class Command(BaseCommand):
 
         print(f'''>-------------------------------------------------------''')
         print(f'''>          {dispatcherStatus.get('name', '******')}: {dispatcherStatus.get('state', '******')} ''')
-        print(f'''>---------------   Cluster    --------------------------''')
+        print(f'''>---------------    群集    --------------------------''')
         for cluster in dispatcherStatus.get('cluster', []):
             print(f'''> {cluster.get('name'):>10}:{cluster.get('pid', [])}''')
 
@@ -121,7 +135,7 @@ class Command(BaseCommand):
                 self.runDispatcher()
             case 'cluster':
                 self.runCluster()
-            case 'shutdown':
-                self.shutdownDispatcher()
+            case 'offline':
+                self.closeDispatcher()
             case 'status':
                 self.status()
