@@ -218,6 +218,7 @@ class WorkerCluster:
                 time.sleep(5)
 
             if time.time() - dispatcherCheckTime > 10:
+                pingRes = -99
                 try:
                     pingRes = self.__dispatcherConn.ping(
                         {
@@ -229,7 +230,6 @@ class WorkerCluster:
                 except Exception as err_:
                     print(f'{self} >>> 调度器连接失败: {err_}')
                     time.sleep(5)
-                    raise Exception from err_
 
                 if pingRes > 0:
                     dispatcherCheckTime = time.time()  # 正常状态更新调度器时间
