@@ -153,13 +153,13 @@ class WorkerCluster:
         self.__poolSize: int = poolSize
         self.__processPool: tuple[WorkerProcess, ...] = tuple(
             WorkerProcess(
-                sn=index + 1,
+                sn=i + 1,
                 clusterOffline=self.__clusterOffline,
                 workerFunc=self.__workerFunc,
                 dispatcher=self.__dispatcherConn,
                 localName=self.__localName,
             )
-            for index in range(poolSize)
+            for i in range(poolSize)
         )
 
         def shutdownHandler(*_):
