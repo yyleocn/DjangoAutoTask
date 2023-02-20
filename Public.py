@@ -29,7 +29,9 @@ def getNowStamp() -> int:
     return int(time.time())
 
 
-def timeStampToString(timeStamp: int | float, formatStr: str = '%Y-%m-%d#%H:%M:%S') -> str:
+def timeStampFormat(timeStamp: int | float, formatStr: str = '%Y-%m-%d_%H:%M:%S') -> str:
+    if not isinstance(timeStamp, int | float):
+        return '------'
     return time.strftime(formatStr, time.localtime(timeStamp))
 
 

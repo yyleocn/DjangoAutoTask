@@ -179,13 +179,13 @@ class TaskScheme(TaskFieldPublic):
 
         self.save()
 
-        print(f'计划 {self.taskSchemeSn} 下次作业时间 {Public.timeStampToString(nextPlanTime)}')
+        print(f'计划 {self.taskSchemeSn} 下次作业时间 {Public.timeStampFormat(nextPlanTime)}')
 
     def createTaskRec(self) -> TaskRec:
         nextTask = TaskRec(
             createUser=self.createUser,
 
-            name=f'''{self.name}-{Public.timeStampToString(self.planTime, formatStr='%Y%m%d-%H%M%S')}''',
+            name=f'''{self.name}-{Public.timeStampFormat(self.planTime, formatStr='%Y%m%d-%H%M%S')}''',
             tag=self.tag,
 
             taskSchemeSn=self.taskSchemeSn,
