@@ -2,6 +2,9 @@ from __future__ import annotations
 
 import json
 import time
+import warnings
+
+import traceback
 
 from pydoc import safeimport
 
@@ -36,7 +39,7 @@ def timeStampFormat(timeStamp: int | float, formatStr: str = '%Y-%m-%d_%H:%M:%S'
 
 
 def currentTimeStr(formatStr: str = '%Y%m%d%H:%M:%S'):
-    return f'''{time.strftime('%Y%m%d-%H:%M:%S', time.localtime())}'''
+    return f'''{time.strftime(formatStr, time.localtime())}'''
 
 
 # -------------------- import component by string --------------------
@@ -58,7 +61,9 @@ def importComponent(path: str, *_, forceLoad: bool = False, cache: dict | None =
     while n > 0:
         try:
             importModule = safeimport('.'.join(pathParts[:n]), forceLoad)
-        except:
+        except Exception as error:
+            warnings.warn(traceback.format_exc())
+            warnings.warn(str(error))
             importModule = None
         if importModule is not None:
             break
